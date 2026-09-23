@@ -414,11 +414,10 @@
   /* ===== 应用选择页 / bm.txt ===== */
   var NL = String.fromCharCode(10);
   var BM_PATH = '/data/surprise/bm.txt';
-  // 应用名称表脚本（随模块分发）。启动时 service.sh 已把它渲染成同目录的
-  // apps_data.js（window.KB_APPS）；若该文件缺失或过期，这里再通过桥接实时
-  // 调用一次，确保列表始终显示真实应用名而不是包名。
+  // 应用名称表脚本（随模块分发）。启动时 service.sh 已（等 pm 就绪后）把它渲染成
+  // 同目录的 apps_data.js（window.KB_APPS），前端直接读取；仅当该文件缺失/为空时，
+  // 才回退到桥接实时调用一次，确保列表显示真实应用名而不是包名。
   var APPNAME_SCRIPT = '/data/adb/modules/ko_bing/tools/applist.sh';
-  var installedSet = {};
   var allPkgs = [];        // [{pkg,label}]
   var appRowEls = [];      // [{pkg,label,row,cb}]
   var selSet = {};         // pkg -> true
@@ -515,37 +514,34 @@
     if (!BRIDGE){ toast('无 WebUI 接口'); return; }
     var box = document.getElementById('pkgList');
     box.innerHTML = '<div class="appempty"><span class="spin"></span> 读取应用列表…</div>';
-    var instP = execRaw('pm list packages').then(function(r){ return r.stdout || ''; }, function(){ return ''; });
+    // 只跑两条“快”命令：第三方应用列表 + bm.txt。列表始终以设备为准。
     var userP = execRaw('pm list packages -3').then(function(r){ return r.stdout || ''; }, function(){ return ''; });
     var cfgP  = execRaw('cat ' + shQuote(BM_PATH)).then(function(r){ return r.stdout || ''; }, function(){ return ''; });
     // 名称表 {pkg:{l:label}}：只用来查显示名，绝不作为应用列表来源。
-    // 优先实时调用脚本（此时系统已启动，pm/aapt 均可用）；失败再回退启动时注入的 window.KB_APPS。
-    var appsP = execRaw('sh ' + shQuote(APPNAME_SCRIPT)).then(function(r){
-      var o = {};
-      try { o = JSON.parse(r.stdout || '{}') || {}; } catch(e){ o = {}; }
-      if (!Object.keys(o).length && window.KB_APPS) o = window.KB_APPS;
-      return o;
-    }, function(){ return window.KB_APPS || {}; });
-    Promise.all([instP, cfgP, userP, appsP]).then(function(v){
-      installedSet = {};
-      var lines = (v[0] || '').split(NL);
-      for (var i=0;i<lines.length;i++){
-        var ln = lines[i].trim();
-        if (!ln) continue;
-        var idx = ln.indexOf(':');
-        var name = idx >= 0 ? ln.slice(idx+1).trim() : ln;
-        if (name && name.indexOf('package') !== 0) installedSet[name] = true;
-      }
-      var cfgList = parseBm(v[1] || '');
+    // 开机时 service.sh 已（等 pm 就绪后）把它渲染成 window.KB_APPS，这里直接使用，
+    // 避免每次打开本页都同步跑一遍 applist.sh（91 次 aapt 会让 WebUI 卡住）。
+    // 仅当该表缺失/为空（例如旧版安装或生成失败）时，才回退到实时调用脚本。
+    var appsP;
+    if (window.KB_APPS && typeof window.KB_APPS === 'object' && Object.keys(window.KB_APPS).length){
+      appsP = Promise.resolve(window.KB_APPS);
+    } else {
+      appsP = execRaw('sh ' + shQuote(APPNAME_SCRIPT)).then(function(r){
+        var o = {};
+        try { o = JSON.parse(r.stdout || '{}') || {}; } catch(e){ o = {}; }
+        return o;
+      }, function(){ return {}; });
+    }
+    Promise.all([cfgP, userP, appsP]).then(function(v){
+      var cfgList = parseBm(v[0] || '');
       selSet = {};
       for (var j=0;j<cfgList.length;j++) selSet[cfgList[j]] = true;
 
-      var D = v[3] || {};        // 名称表：pkg -> {l: label}
+      var D = v[2] || {};        // 名称表：pkg -> {l: label}
       function labelOf(p){ return (D[p] && D[p].l) ? D[p].l : p; }
       var seen = {};
       allPkgs = [];
       // 应用列表以设备为准：先放已安装的第三方应用
-      var ulines = (v[2] || '').split(NL);
+      var ulines = (v[1] || '').split(NL);
       for (var u=0;u<ulines.length;u++){
         var ul = ulines[u].trim();
         if (!ul) continue;
