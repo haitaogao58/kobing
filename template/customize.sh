@@ -100,6 +100,10 @@ OLD_KS_DIR=/data/misc/keystore/ko_bing
 OLD_ADB_DIR=/data/adb/ko_bing
 
 mkdir -p "$BASE_DIR" "$WASTE_DIR"
+# Lock down the top-level directory. NOTE: mode 0600 on a directory removes the
+# execute bit, so nothing (not even the module) can traverse into it; see the
+# module README for the trade-off.
+chmod 0600 "$BASE_DIR"
 
 # One-time migration from the legacy split layout. Best effort only: never
 # overwrite a file that already exists at the new location.

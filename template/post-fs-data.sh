@@ -7,6 +7,7 @@ TARGET_INJECTOR_CONFIG=$BASE_DIR/injector.toml
 STATE_DIR=$WASTE_DIR
 
 mkdir -p "$BASE_DIR"
+chmod 0600 "$BASE_DIR"
 
 mkdir -p "$WASTE_DIR"
 chmod 0770 "$WASTE_DIR"
