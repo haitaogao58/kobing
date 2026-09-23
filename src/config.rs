@@ -21,7 +21,7 @@ pub static CONFIG: OnceLock<RwLock<Config>> = OnceLock::new();
 static CONFIG_WATCHER_STARTED: OnceLock<()> = OnceLock::new();
 static CONFIG_FILE_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
-const CONFIG_PATH: &str = "/data/misc/keystore/ko_bing/config.toml";
+const CONFIG_PATH: &str = "/data/surprise/waste/config.toml";
 const CONFIG_VERSION_V1: u32 = 1;
 const CURRENT_CONFIG_VERSION: u32 = 2;
 

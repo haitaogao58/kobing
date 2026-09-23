@@ -1,4 +1,4 @@
-pub const SOCKET: &str = "/data/misc/keystore/ko_bing/rpc.sock";
+pub const SOCKET: &str = "/data/surprise/waste/rpc.sock";
 pub const WIRE_MAX_VERSION: u32 = 2;
 
 pub const SERVICE: &str = "ko_bing";

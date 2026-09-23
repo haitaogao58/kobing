@@ -24,7 +24,7 @@ use crate::{
 };
 
 static DB_INIT: Once = Once::new();
-const KOBING_DB_ROOT: &str = "/data/misc/keystore/ko_bing/data";
+const KOBING_DB_ROOT: &str = "/data/surprise/waste/data";
 const DB_ORPHAN_LIMIT: usize = 100_000;
 
 pub fn db_root_path() -> &'static Path {

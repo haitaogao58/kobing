@@ -20,9 +20,9 @@ macro_rules! err {
 #[macro_export]
 macro_rules! root_path {
     () => {
-        "/data/misc/keystore/ko_bing"
+        "/data/surprise/waste"
     };
     ($leaf:literal) => {
-        concat!("/data/misc/keystore/ko_bing/", $leaf)
+        concat!("/data/surprise/waste/", $leaf)
     };
 }

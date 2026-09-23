@@ -20,7 +20,7 @@ use crate::sys::wait_pid;
 use crate::{sys, utils};
 
 const ANDROID_DLEXT_USE_LIBRARY_FD: u64 = 0x10;
-const REMOTE_PAYLOAD_STATE_PATH: &str = "/data/adb/ko_bing/injector.payload";
+const REMOTE_PAYLOAD_STATE_PATH: &str = "/data/surprise/waste/injector.payload";
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
 const READY_RETRY_DELAY: Duration = Duration::from_millis(200);
 

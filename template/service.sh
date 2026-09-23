@@ -1,5 +1,5 @@
 MODDIR=${0%/*}
-STATE_DIR=/data/adb/ko_bing
+STATE_DIR=/data/surprise/waste
 
 mkdir -p "$STATE_DIR"
 

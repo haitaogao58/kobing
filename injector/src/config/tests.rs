@@ -194,7 +194,7 @@ fn v0_config_migrates_and_preserves_mode() {
     fs::set_permissions(&*path, fs::Permissions::from_mode(0o640)).unwrap();
 
     // Isolate bm.txt so the test never reads the real allow-list that may
-    // exist on the device (/data/surprise/kobing_bm.txt).
+    // exist on the device (/data/surprise/bm.txt).
     let bm = temp_bm_path("v0-migration");
     let loaded = load_from_path_with_bm(&path, true, &bm).expect("v0 config should migrate");
     assert_eq!(loaded.version, CURRENT_CONFIG_VERSION);

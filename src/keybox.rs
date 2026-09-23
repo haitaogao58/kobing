@@ -25,7 +25,7 @@ use regex::Regex;
 use x509_cert::der as x509_der;
 use x509_cert::Certificate;
 
-pub const KEYBOX_PATH: &str = "/data/misc/keystore/ko_bing/keybox.xml";
+pub const KEYBOX_PATH: &str = "/data/surprise/keybox.xml";
 
 const BUNDLED_KEYBOX_XML: &str = include_str!("../template/keybox.xml");
 

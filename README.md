@@ -22,9 +22,9 @@ In theory, this would make it harder for detectors to identify behavior inconsis
 
 The keybox file should be a **valid** XML file with both EC and RSA chain, which means there should be no extra content in it like watermark or invisible characters.
 
-The active files are `/data/misc/keystore/ko_bing/config.toml`,
-`/data/misc/keystore/ko_bing/injector.toml`, and the package allow-list
-`/data/surprise/kobing_bm.txt`. Read the
+The active files are `/data/surprise/waste/config.toml`,
+`/data/surprise/injector.toml`, and the package allow-list
+`/data/surprise/bm.txt`. Read the
 [Configuration Guide](docs/CONFIGURATION.md) for complete annotated examples,
 field-by-field explanations, safety notes, and restart requirements.
 
@@ -34,9 +34,9 @@ The module ships two background daemons: one for `keymint`, one for `injector`.
 You can restart them by following commands.
 
 ```sh
-touch /data/adb/ko_bing/restart.keymint
-touch /data/adb/ko_bing/restart.injector
-touch /data/adb/ko_bing/restart.all
+touch /data/surprise/waste/restart.keymint
+touch /data/surprise/waste/restart.injector
+touch /data/surprise/waste/restart.all
 ```
 
 See the [Configuration Guide](docs/CONFIGURATION.md#how-changes-are-loaded) for

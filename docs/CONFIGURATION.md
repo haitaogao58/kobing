@@ -2,12 +2,11 @@
 
 KoBing (KOBING) uses three active configuration files:
 
-- `/data/misc/keystore/ko_bing/config.toml` controls the KeyMint service, the
+- `/data/surprise/waste/config.toml` controls the KeyMint service, the
   identity it reports, and the secrets used for KOBING-created keys.
-- `/data/misc/keystore/ko_bing/injector.toml` selects which KeyStore requests are
+- `/data/surprise/injector.toml` selects which KeyStore requests are
   routed to KOBING.
-- `/data/surprise/kobing_bm.txt` lists the app packages that may use KOBING. The
-  module also exposes it as a convenience symlink at `/data/adb/ko_bing/kobing_bm.txt`.
+- `/data/surprise/bm.txt` lists the app packages that may use KOBING.
 
 This guide describes the active configuration used by the current build. The
 examples are followed by a separate field-by-field reference so that the short
@@ -24,8 +23,8 @@ allow-list in `bm.txt`. Keep `injector.toml`, the safety filters, all
 Before making a change:
 
 1. Make a private backup of all active files.
-2. Edit the files under `/data/misc/keystore/ko_bing/` and
-   `/data/surprise/kobing_bm.txt`, not copies in the module ZIP.
+2. Edit the files under `/data/surprise/` (and `/data/surprise/waste/`),
+   not copies in the module ZIP.
 3. Keep strings inside quotes, booleans as `true` or `false`, and put package
    names in `bm.txt`, one exact package name per line.
 4. Change one thing at a time, save the complete file, and check the matching
@@ -648,12 +647,9 @@ the former `scoop` array that used to live inside `injector.toml`.
 
 ### Paths
 
-- Runtime entity: `/data/surprise/kobing_bm.txt`
-- Convenience symlink: `/data/adb/ko_bing/kobing_bm.txt` -> `/data/surprise/kobing_bm.txt`
+- Runtime entity: `/data/surprise/bm.txt`
 
-The injector reads the entity path directly, so it works even though
-`/data/adb` is not readable by the keystore identity. The symlink exists only
-for convenience when browsing or editing from a root shell.
+The injector reads the entity path directly.
 
 ### Format
 

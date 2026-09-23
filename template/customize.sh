@@ -93,26 +93,22 @@ fi
 [ -f "$BINDIR/inject" ] || abort "! Missing $BINDIR/inject"
 chmod 755 "$BINDIR/keymint" "$BINDIR/inject"
 
-CONFIG_DIR=/data/adb/ko_bing
-mkdir -p "$CONFIG_DIR"
-rm -f "$CONFIG_DIR/restart.keymint" "$CONFIG_DIR/restart.injector" "$CONFIG_DIR/restart.all"
-rm -f "$CONFIG_DIR/keymint" "$CONFIG_DIR/inject" "$CONFIG_DIR/injector" # clean up old hot-update binaries
+BASE_DIR=/data/surprise
+WASTE_DIR=$BASE_DIR/waste
+STATE_DIR=$WASTE_DIR
 
-if [ ! -e "$CONFIG_DIR/ko_bing_data" ] && [ ! -L "$CONFIG_DIR/ko_bing_data" ]; then
-  ln -s /data/misc/keystore/ko_bing "$CONFIG_DIR/ko_bing_data"
-fi
+mkdir -p "$BASE_DIR" "$STATE_DIR"
+rm -f "$STATE_DIR/restart.keymint" "$STATE_DIR/restart.injector" "$STATE_DIR/restart.all"
+rm -f "$STATE_DIR/keymint" "$STATE_DIR/inject" "$STATE_DIR/injector" # clean up old hot-update binaries
 
-# Seed the package allow-list and expose it via a symlink in the state dir.
-BM_DIR=/data/surprise
-BM_FILE=$BM_DIR/kobing_bm.txt
-mkdir -p "$BM_DIR"
+# Clean up the legacy /data/adb/ko_bing layout.
+rm -rf /data/adb/ko_bing
+
+# Seed the package allow-list directly into /data/surprise.
+BM_FILE=$BASE_DIR/bm.txt
 if [ ! -f "$BM_FILE" ] && [ -f "$MODPATH/bm.txt" ]; then
   cp "$MODPATH/bm.txt" "$BM_FILE"
 fi
 if [ -f "$BM_FILE" ]; then
   chmod 0644 "$BM_FILE"
-  if [ ! -L "$CONFIG_DIR/kobing_bm.txt" ] || [ "$(readlink "$CONFIG_DIR/kobing_bm.txt" 2>/dev/null)" != "$BM_FILE" ]; then
-    rm -f "$CONFIG_DIR/kobing_bm.txt"
-    ln -s "$BM_FILE" "$CONFIG_DIR/kobing_bm.txt"
-  fi
 fi

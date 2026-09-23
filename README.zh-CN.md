@@ -30,9 +30,9 @@ keybox 文件必须是**合法的** XML，且同时包含 EC 与 RSA 证书链�
 
 生效的配置/数据文件为：
 
-- `/data/misc/keystore/ko_bing/config.toml`
-- `/data/misc/keystore/ko_bing/injector.toml`
-- 包名允许清单 `/data/surprise/kobing_bm.txt`
+- `/data/surprise/waste/config.toml`
+- `/data/surprise/injector.toml`
+- 包名允许清单 `/data/surprise/bm.txt`
 
 完整的带注释示例、逐字段说明、安全须知与重启要求，请阅读[配置指南](docs/CONFIGURATION.md)。
 
@@ -41,9 +41,9 @@ keybox 文件必须是**合法的** XML，且同时包含 EC 与 RSA 证书链�
 模块自带两个后台守护进程：一个用于 `keymint`，一个用于 `injector`。可用以下命令重启：
 
 ```sh
-touch /data/adb/ko_bing/restart.keymint
-touch /data/adb/ko_bing/restart.injector
-touch /data/adb/ko_bing/restart.all
+touch /data/surprise/waste/restart.keymint
+touch /data/surprise/waste/restart.injector
+touch /data/surprise/waste/restart.all
 ```
 
 哪些改动需要重启组件、哪些需要整机重启，见[配置指南](docs/CONFIGURATION.md#how-changes-are-loaded)。

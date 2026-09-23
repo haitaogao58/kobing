@@ -27,7 +27,7 @@ use std::io::BufRead;
 use std::io::Write;
 use std::path;
 
-const SECURE_DELETION_DATA_FILE: &str = "/data/misc/keystore/ko_bing/data/keymint.dat";
+const SECURE_DELETION_DATA_FILE: &str = "/data/surprise/waste/data/keymint.dat";
 
 fn read_sdd_file() -> Result<storage::SecureDeletionData, Error> {
     let f = fs::File::open(SECURE_DELETION_DATA_FILE).map_err(|e| {

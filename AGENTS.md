@@ -60,7 +60,7 @@
 
 - Obtain the user's explicit approval before creating any file that requires permanent storage.
 - Delete every temporary probe artifact immediately after the probe completes.
-- All persistent data should be in `/data/misc/keystore/ko_bing/data/`
+- All persistent data should be in `/data/surprise/waste/data/`
 
 ### Telephony Attestation IDs
 

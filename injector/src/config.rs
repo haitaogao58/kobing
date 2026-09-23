@@ -13,9 +13,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Duration;
 
-pub const DEFAULT_CONFIG_PATH: &str = "/data/misc/keystore/ko_bing/injector.toml";
+pub const DEFAULT_CONFIG_PATH: &str = "/data/surprise/injector.toml";
 /// Authoritative package allow-list file (one package per line).
-pub const DEFAULT_BM_PATH: &str = "/data/surprise/kobing_bm.txt";
+pub const DEFAULT_BM_PATH: &str = "/data/surprise/bm.txt";
 const CURRENT_CONFIG_VERSION: u32 = 1;
 const REPLACE_SAVE_RETRY_INTERVAL: Duration = Duration::from_millis(100);
 const REPLACE_SAVE_RETRY_LIMIT: usize = 10;

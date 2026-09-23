@@ -71,7 +71,7 @@ State in the pull request what behavior remains unchanged.
 ### Persistent and temporary files
 
 - Delete every temporary probe artifact immediately after the probe completes.
-- Store new persistent product data under `/data/misc/keystore/ko_bing/data/`.
+- Store new persistent product data under `/data/surprise/waste/data/`.
 
 ## Repository conventions
 

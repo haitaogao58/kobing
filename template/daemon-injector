@@ -1,7 +1,7 @@
 #!/system/bin/sh
 
 MODDIR=${0%/*}
-STATE_DIR=/data/adb/ko_bing
+STATE_DIR=/data/surprise/waste
 PAYLOAD_STATE_FILE=$STATE_DIR/injector.payload
 RESTART_FILE=$STATE_DIR/restart.injector
 PEER_RESTART_FILE=$STATE_DIR/restart.keymint

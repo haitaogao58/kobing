@@ -138,7 +138,7 @@
 
   <div class="card">
     <div class="label">添加密钥 / keybox.xml</div>
-    <div class="sub" style="margin:0 0 8px">选择要注入的 <span class="mono">keybox.xml</span>，将写入 <span class="mono">/data/misc/keystore/ko_bing/keybox.xml</span>（临时名 + 一次性 rename，权限 0600 / keystore）。若文件选择不可用，可直接粘贴 XML 内容。</div>
+    <div class="sub" style="margin:0 0 8px">选择要注入的 <span class="mono">keybox.xml</span>，将写入 <span class="mono">/data/surprise/keybox.xml</span>（临时名 + 一次性 rename，权限 0600 / keystore）。若文件选择不可用，可直接粘贴 XML 内容。</div>
     <div class="filerow">
       <input type="file" id="kbFile" accept=".xml,text/xml,application/xml">
     </div>
@@ -351,8 +351,8 @@
   }
 
   /* ===== 覆盖启动哈希（写 config.toml + 重启 keymint） ===== */
-  var CONFIG_PATH = '/data/misc/keystore/ko_bing/config.toml';
-  var RESTART_FILE = '/data/adb/ko_bing/restart.keymint';
+  var CONFIG_PATH = '/data/surprise/waste/config.toml';
+  var RESTART_FILE = '/data/surprise/waste/restart.keymint';
 
   function loadCfg(){
     var el = document.getElementById('cfg');
@@ -413,8 +413,7 @@
 
   /* ===== 应用选择页 / bm.txt ===== */
   var NL = String.fromCharCode(10);
-  var BM_PATH = '/data/surprise/kobing_bm.txt';
-  var BM_LINK = '/data/adb/ko_bing/kobing_bm.txt';
+  var BM_PATH = '/data/surprise/bm.txt';
   var installedSet = {};
   var allPkgs = [];        // [{pkg,label}]
   var appRowEls = [];      // [{pkg,label,row,cb}]
@@ -619,7 +618,7 @@
   document.getElementById('bmApply2').addEventListener('click', function(){ applyBm(true); });
 
   /* ===== 添加密钥 / keybox.xml ===== */
-  var KB_DIR = '/data/misc/keystore/ko_bing';
+  var KB_DIR = '/data/surprise';
   var KEYBOX_PATH = KB_DIR + '/keybox.xml';
   var kbContent = '';
 
@@ -661,7 +660,7 @@
       'echo __OK__; wc -c < "$f"';
     execRaw(cmd).then(function(r){
       var out = r.stdout || '';
-      if (out.indexOf('__NO_DIR__') >= 0) throw new Error('找不到 ko_bing 数据目录');
+      if (out.indexOf('__NO_DIR__') >= 0) throw new Error('找不到 /data/surprise 目录');
       if (out.indexOf('__DECODE_FAIL__') >= 0) throw new Error('内容 base64 解码失败');
       if (out.indexOf('__EMPTY__') >= 0) throw new Error('写入内容为空');
       if (out.indexOf('__OK__') < 0) throw new Error('写入未确认：' + ((r.stderr || out) || '').slice(0,140));

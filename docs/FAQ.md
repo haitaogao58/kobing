@@ -80,10 +80,10 @@ No.
 Before testing a development build, or making a large
 configuration change, privately back up:
 
-- `/data/misc/keystore/ko_bing/config.toml`
-- `/data/misc/keystore/ko_bing/injector.toml`
-- `/data/misc/keystore/ko_bing/keybox.xml`
-- `/data/misc/keystore/ko_bing/data/`
+- `/data/surprise/waste/config.toml`
+- `/data/surprise/injector.toml`
+- `/data/surprise/keybox.xml`
+- `/data/surprise/waste/data/`
 
 Treat the backup like a password. It can contain private keys and device
 identifiers. A backup is a safety measure, not a portable copy that is
@@ -105,9 +105,9 @@ Deleting it can permanently remove keys that apps still need.
 
 The active files are:
 
-- `/data/misc/keystore/ko_bing/config.toml`
-- `/data/misc/keystore/ko_bing/injector.toml`
-- `/data/surprise/kobing_bm.txt`
+- `/data/surprise/waste/config.toml`
+- `/data/surprise/injector.toml`
+- `/data/surprise/bm.txt`
 
 Edit the active files, not the copies inside the module ZIP. Make a backup
 first and use a root-capable editor that preserves the files correctly.
@@ -117,8 +117,7 @@ kind of change takes effect.
 ### What is `bm.txt`?
 
 `bm.txt` is the list of app package names that may use KOBING. It is a plain text
-file, one exact package name per line, stored at `/data/surprise/kobing_bm.txt`
-(with a convenience symlink at `/data/adb/ko_bing/kobing_bm.txt`). A package name looks
+file, one exact package name per line, stored at `/data/surprise/bm.txt`. A package name looks
 like `com.example.app`; it is not the name shown under the app icon. It must be
 entered exactly.
 
@@ -227,7 +226,7 @@ tools accept damaged or incomplete XML that KOBING correctly rejects.
 ### How should I replace `keybox.xml`?
 
 Replace the complete active file at
-`/data/misc/keystore/ko_bing/keybox.xml`. Do not open it and save it piece by piece.
+`/data/surprise/keybox.xml`. Do not open it and save it piece by piece.
 Use a root file manager to copy the complete replacement under a temporary
 name in the same folder, then rename it to `keybox.xml` in one step.
 
@@ -252,7 +251,7 @@ cannot always be avoided.
 Change a keybox only when you have time to re-register important apps. Back up
 first, but do not delete the whole KOBING data directory.
 
-### Should I delete `/data/misc/keystore/ko_bing/data/`?
+### Should I delete `/data/surprise/waste/data/`?
 
 Not during a normal update, keybox change, or first troubleshooting attempt.
 That folder contains KOBING-created keys. Deleting it can sign apps out, make
@@ -418,10 +417,10 @@ interception configuration on important data.
 
 The log files are:
 
-- `/data/misc/keystore/ko_bing/logs/keymint.log`
-- `/data/misc/keystore/ko_bing/logs/keymint.log.1`
-- `/data/misc/keystore/ko_bing/logs/injector.log`
-- `/data/misc/keystore/ko_bing/logs/injector.log.1`
+- `/data/surprise/waste/logs/keymint.log`
+- `/data/surprise/waste/logs/keymint.log.1`
+- `/data/surprise/waste/logs/injector.log`
+- `/data/surprise/waste/logs/injector.log.1`
 
 `debug` is the normal default and is useful while reproducing a problem. You
 can lower the level in each component's active configuration after testing.

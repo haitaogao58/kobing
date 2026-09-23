@@ -1,7 +1,7 @@
 #!/system/bin/sh
 
 MODDIR=${0%/*}
-STATE_DIR=/data/adb/ko_bing
+STATE_DIR=/data/surprise/waste
 RESTART_FILE=$STATE_DIR/restart.keymint
 PEER_RESTART_FILE=$STATE_DIR/restart.injector
 RESTART_ALL_FILE=$STATE_DIR/restart.all
@@ -9,8 +9,8 @@ RESTART_ALL_FILE=$STATE_DIR/restart.all
 export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/vendor/lib64/:/system/lib64/:/apex/com.android.runtime/lib64/bionic/"
 
 find_module_keymint() {
-  if [ -f "/data/adb/ko_bing/keymint" ]; then
-    echo /data/adb/ko_bing/keymint
+  if [ -f "$STATE_DIR/keymint" ]; then
+    echo "$STATE_DIR/keymint"
     return 0
   fi
   if [ -f "$MODDIR/keymint" ]; then
