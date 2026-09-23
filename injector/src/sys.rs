@@ -45,7 +45,7 @@ pub fn wait_pid(pid: Pid, target: Signal) -> Result<()> {
                 if sig == target {
                     return Ok(());
                 }
-                // Got an unexpected signal — re-deliver it via PTRACE_CONT and keep waiting
+
                 warn!(
                     "Process {} stopped with unexpected signal {}, re-delivering",
                     pid,
@@ -300,7 +300,6 @@ pub fn setup_remote_call(
     {
         let mut sp = regs.rsp as usize;
 
-        // set up arguments in registers
         if args.len() > 0 {
             regs.rdi = args[0] as u64;
         }
@@ -362,13 +361,11 @@ pub fn setup_remote_call(
         const ARG_REG_COUNT: usize = 8;
         let mut sp = regs.sp as usize;
 
-        // set up arguments in registers
         for (i, arg) in args.iter().enumerate().take(ARG_REG_COUNT) {
             regs.regs[i] = *arg as u64;
         }
-        // jump to stack for additional arguments
+
         if args.len() > ARG_REG_COUNT {
-            // ensure 16-byte alignment
             let size = (args.len() - ARG_REG_COUNT) * std::mem::size_of::<usize>();
             let target_sp = sp.wrapping_sub(size) & !0xf;
             sp = target_sp + size;
@@ -377,18 +374,18 @@ pub fn setup_remote_call(
                 sp = push_stack(pid, sp, &args[i].to_ne_bytes())?;
             }
         }
-        // set link register to dummy return address
+
         regs.regs[30] = return_addr as u64;
-        // set program counter to function address
+
         regs.pc = func_addr as u64;
-        // ensure proper instruction set state
+
         regs.sp = sp as u64;
     }
 
     #[cfg(target_arch = "arm")]
     {
         const REG_ARGS_COUNT: usize = 4;
-        let mut sp = regs.uregs[13] as usize; // SP
+        let mut sp = regs.uregs[13] as usize;
 
         if args.len() > REG_ARGS_COUNT {
             let stack_args_len = (args.len() - REG_ARGS_COUNT) * 4;
@@ -405,15 +402,15 @@ pub fn setup_remote_call(
             regs.uregs[i] = args[i] as u32;
         }
 
-        regs.uregs[14] = return_addr as u32; // LR
-        regs.uregs[13] = sp as u32; // SP
+        regs.uregs[14] = return_addr as u32;
+        regs.uregs[13] = sp as u32;
 
         if (func_addr & 1) != 0 {
-            regs.uregs[15] = (func_addr & !1) as u32; // PC
-            regs.uregs[16] |= 0x20; // Set CPSR T bit (bit 5)
+            regs.uregs[15] = (func_addr & !1) as u32;
+            regs.uregs[16] |= 0x20;
         } else {
-            regs.uregs[15] = func_addr as u32; // PC
-            regs.uregs[16] &= !0x20; // Clear T bit
+            regs.uregs[15] = func_addr as u32;
+            regs.uregs[16] &= !0x20;
         }
     }
 

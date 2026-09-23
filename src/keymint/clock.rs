@@ -13,16 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Monotonic clock implementation.
-
 use kmr_common::crypto;
 use log::warn;
 
-/// Monotonic clock.
 pub struct StdClock;
 
 impl StdClock {
-    /// Create new clock instance, holding time since construction.
     pub fn new() -> Self {
         Self {}
     }
@@ -40,10 +36,8 @@ impl crypto::MonotonicClock for StdClock {
             tv_sec: 0,
             tv_nsec: 0,
         };
-        // Use `CLOCK_BOOTTIME` for consistency with the times used by the Cuttlefish
-        // C++ implementation of Gatekeeper.
+
         let rc =
-        // Safety: `time` is a valid structure.
             unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut time as *mut libc::timespec) };
         if rc < 0 {
             warn!("failed to get time!");

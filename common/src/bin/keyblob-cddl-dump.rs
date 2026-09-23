@@ -17,7 +17,6 @@ use kmr_wire::keymint;
 use std::collections::HashMap;
 use std::fmt::Write;
 
-/// Combined schema, with CBOR-encoded examples of specific types.
 #[derive(Default)]
 struct AccumulatedSchema {
     schema: String,
@@ -25,7 +24,6 @@ struct AccumulatedSchema {
 }
 
 impl AccumulatedSchema {
-    /// Add a new type to the accumulated schema, along with a sample instance of the type.
     fn add<T: kmr_wire::AsCborValue>(&mut self, sample: T) {
         if let (Some(name), Some(schema)) = (<T>::cddl_typename(), <T>::cddl_schema()) {
             self.add_name_schema(&name, &schema);
@@ -35,17 +33,11 @@ impl AccumulatedSchema {
         }
     }
 
-    /// Add the given name = schema to the accumulated schema.
     fn add_name_schema(&mut self, name: &str, schema: &str) {
         let _ = writeln!(self.schema, "{} = {}", name, schema);
     }
 
-    /// Check that all of the sample type instances match their CDDL schema.
-    ///
-    /// This method is a no-op if the `cddl-cat` feature is not enabled.
     fn check(&self) {
-        // TODO: enable this if/when cddl-cat supports tagged CBOR items (which are used in the
-        // EncryptedKeyBlob encoding)
         #[cfg(feature = "cddl-cat")]
         for (name, data) in &self.samples {
             if let Err(e) = cddl_cat::validate_cbor_bytes(&name, &self.schema, &data) {
@@ -65,7 +57,6 @@ impl std::fmt::Display for AccumulatedSchema {
 }
 
 fn main() {
-    // CDDL for encrypted keyblobs, top-down.
     let mut schema = AccumulatedSchema::default();
 
     schema.add(keyblob::EncryptedKeyBlob::V1(keyblob::EncryptedKeyBlobV1 {
@@ -101,7 +92,7 @@ fn main() {
         security_level: keymint::SecurityLevel::TrustedEnvironment,
         authorizations: vec![],
     });
-    // From RFC 8152.
+
     schema.add_name_schema(
         "Cose_Encrypt0",
         "[ protected: bstr, unprotected: { * (int / tstr) => any }, ciphertext: bstr / nil ]",

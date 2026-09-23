@@ -191,9 +191,6 @@ fn unavailable_ko_bing_errors_preserve_system_reply() {
 
 #[test]
 fn reachable_non_stale_ko_bing_status_code_errors_become_system_error_reply() {
-    // AOSP keystore2 maps a bare transport StatusCode through
-    // map_binder_status_code -> Error::BinderTransaction -> SYSTEM_ERROR,
-    // surfaced as a service-specific parcel, never a raw transport status.
     for status in [
         StatusCode::TimedOut,
         StatusCode::PermissionDenied,

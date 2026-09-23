@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Functionality for remote key provisioning
-
 use super::KeyMintTa;
 use crate::coset::{
     cbor::value::Value, iana, AsCborValue, CborSerializable, CoseKey, CoseMac0, CoseMac0Builder,
@@ -57,9 +55,6 @@ const RPC_P256_KEYGEN_PARAMS: [KeyParam; 8] = [
 const MAX_CHALLENGE_SIZE_V2: usize = 64;
 
 impl KeyMintTa {
-    /// Return the UDS certs for the device, encoded in CBOR as per `AdditionalDKSignatures`
-    /// structure in ProtectedData.aidl for IRPC HAL version 2 and as per `UdsCerts` structure in
-    /// IRPC HAL version 3.
     pub fn uds_certs(&self) -> Result<Vec<u8>, Error> {
         let dice_info = self
             .get_dice_info()
@@ -67,14 +62,12 @@ impl KeyMintTa {
         try_to_vec(&dice_info.pub_dice_artifacts.uds_certs)
     }
 
-    /// Return the CBOR-encoded `DeviceInfo`.
     pub fn rpc_device_info(&self) -> Result<Vec<u8>, Error> {
         let info = self.rpc_device_info_cbor()?;
         serialize_cbor(&info)
     }
 
     fn rpc_device_info_cbor(&self) -> Result<Value, Error> {
-        // First make sure all the relevant info is available.
         let ids = self.get_attestation_ids().ok_or_else(|| {
             km_err!(
                 AttestationIdsNotProvisioned,
@@ -123,11 +116,7 @@ impl KeyMintTa {
             RpcInfo::V2(rpc_info_v2) => rpc_info_v2.fused,
             RpcInfo::V3(rpc_info_v3) => rpc_info_v3.fused,
         };
-        // The DeviceInfo.aidl file specifies that map keys should be ordered according
-        // to RFC 7049 canonicalization rules, which are:
-        // - shorter-encoded key < longer-encoded key
-        // - lexicographic comparison for same-length keys
-        // Note that this is *different* than the ordering required in RFC 8949 s4.2.1.
+
         let info = Value::Map(vec![
             (Value::from("brand"), Value::from(brand.into_owned())),
             (Value::from("fused"), Value::from(i32::from(fused))),
@@ -216,7 +205,6 @@ impl KeyMintTa {
         let pub_cose_key_encoded = pub_cose_key.to_vec().map_err(CborError::from)?;
         let maced_pub_key =
             build_maced_pub_key(pub_cose_key_encoded, |data| -> Result<Vec<u8>, Error> {
-                // In test mode, use an all-zero HMAC key.
                 if test_mode == rpc::TestMode(true) {
                     return hmac_sha256(&*self.imp.hmac, &[0; 32], data);
                 }
@@ -279,14 +267,12 @@ impl KeyMintTa {
                 challenge.len(),
             ));
         }
-        // Validate mac and extract the public keys to sign from the MacedPublicKeys
+
         let mut pub_cose_keys: Vec<Value> = Vec::new();
         for key_to_sign in keys_to_sign {
             let maced_pub_key = key_to_sign.maced_key;
             let cose_mac0 = CoseMac0::from_slice(&maced_pub_key).map_err(CborError::from)?;
-            // Decode the public cose key from payload and check for test keys in production.
-            // TODO: if implementing IRPC V2, create a helper function to check for test keys that
-            // takes an indication of whether test mode is allowed
+
             if let Some(pub_cose_key_data) = &cose_mac0.payload {
                 let pub_cose_key_cbor = read_to_value(pub_cose_key_data)?;
                 let pub_cose_key =
@@ -324,7 +310,7 @@ impl KeyMintTa {
                 },
             )?;
         }
-        // Construct the `CsrPayload`
+
         let rpc_device_info = self.rpc_device_info_cbor()?;
         let csr_payload = Value::Array(vec![
             Value::Integer(self.rpc_info.get_version().into()),
@@ -333,21 +319,19 @@ impl KeyMintTa {
             Value::Array(pub_cose_keys),
         ]);
         let csr_payload_data = serialize_cbor(&csr_payload)?;
-        // Construct the payload for `SignedData`
+
         let signed_data_payload = Value::Array(vec![
             Value::Bytes(challenge.to_vec()),
             Value::Bytes(csr_payload_data),
         ]);
         let signed_data_payload_data = serialize_cbor(&signed_data_payload)?;
 
-        // Process DICE info.
         let dice_info = self
             .get_dice_info()
             .ok_or_else(|| rpc_err!(Failed, "DICE info not available."))?;
         let uds_certs = read_to_value(&dice_info.pub_dice_artifacts.uds_certs)?;
         let dice_cert_chain = read_to_value(&dice_info.pub_dice_artifacts.dice_cert_chain)?;
 
-        // Get `SignedData`
         let signed_data_cbor = read_to_value(&self.dev.rpc.sign_data_in_cose_sign1(
             &*self.imp.ec,
             &dice_info.signing_algorithm,
@@ -356,7 +340,6 @@ impl KeyMintTa {
             None,
         )?)?;
 
-        // Construct `AuthenticatedRequest<CsrPayload>`
         let authn_req = Value::Array(vec![
             Value::Integer(AUTH_REQ_SCHEMA_V1.into()),
             uds_certs,
@@ -367,7 +350,6 @@ impl KeyMintTa {
     }
 }
 
-/// Helper function to construct `MacedPublicKey` in MacedPublicKey.aidl
 fn build_maced_pub_key<F>(pub_cose_key: Vec<u8>, compute_mac: F) -> Result<Vec<u8>, Error>
 where
     F: FnOnce(&[u8]) -> Result<Vec<u8>, Error>,
@@ -383,7 +365,6 @@ where
     Ok(cose_mac_0.to_vec().map_err(CborError::from)?)
 }
 
-/// Helper function to serialize a `cbor::value::Value` into bytes.
 pub fn serialize_cbor(cbor_value: &Value) -> Result<Vec<u8>, Error> {
     let mut buf = Vec::new();
     cbor::ser::into_writer(cbor_value, &mut buf)

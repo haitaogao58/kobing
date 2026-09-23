@@ -33,7 +33,6 @@ fn get_field_by_tag_type(tag: Tag) -> KmKeyParameterValue {
             match tag_type {
                 TagType::INVALID => KmKeyParameterValue::Invalid(Default::default()),
                 TagType::ENUM | TagType::ENUM_REP => {
-                    // Enum tags should be already handled above.
                     panic!("Unknown enum tag/tag_type: {tag:?} {tag_type:?}");
                 }
                 TagType::UINT | TagType::UINT_REP => {

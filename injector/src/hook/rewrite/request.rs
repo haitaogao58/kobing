@@ -86,9 +86,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         pid: i64::from(tr.sender_pid),
     };
     let caller_uid = caller.uid;
-    // Authorization events are emitted by system auth components, not by the
-    // app that later uses an auth-bound key. Mirror this global keystore state
-    // after the system service accepts it; scoop still gates app key traffic.
+
     if request_interface == identify::KEYSTORE_AUTHORIZATION_INTERFACE {
         let request = match parcel::parse_authorization_request(
             data,
@@ -173,9 +171,6 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         return false;
     }
 
-    // Maintenance calls mostly carry global keystore state, so mirror them after
-    // system success. migrateKeyNamespace moves app keys, so scoop-routed callers
-    // use KOBING as the authoritative business path.
     if request_interface == identify::KEYSTORE_MAINTENANCE_INTERFACE {
         let request = match parcel::parse_maintenance_request(
             data,
@@ -524,7 +519,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
                     return true;
                 }
             };
-        // Keystore2 shares each security-level Binder between getSecurityLevel and getKeyEntry.
+
         let scoop_enabled = security_level_scoop_enabled(&cfg.intercept);
         let route = if allow_unknown_ko_bing_route || decision.allowed && scoop_enabled {
             RouteTarget::KoBing
@@ -721,7 +716,6 @@ unsafe fn handle_ko_bing_one_way_operation_request(
 }
 
 fn block_system_request(tr: &mut binder_transaction_data) {
-    // Keep the parcel intact; the interceptor owns any receive-buffer shadow.
     tr.code = u32::MAX;
 }
 

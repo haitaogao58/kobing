@@ -84,7 +84,7 @@ fn require_binder_service<T>(name: &str, lookup: rsbinder::Result<Option<T>>) ->
         Ok(None) | Err(StatusCode::DeadObject) | Err(StatusCode::NotEnoughData) => {
             Err(BinderServiceUnavailable(name.to_string()).into())
         }
-        // FailedTransaction is deliberately excluded: rsbinder also uses it for AIDL exceptions.
+
         Err(error) => {
             Err(error).with_context(|| format!("failed to look up Binder service {name}"))
         }

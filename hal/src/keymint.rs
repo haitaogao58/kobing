@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! KeyMint HAL device implementation.
-
 use crate::binder;
 use crate::hal::{
     failed_conversion, keymint, keymint::IKeyMintOperation::IKeyMintOperation,
@@ -28,54 +26,17 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, RwLock},
 };
 
-/// Maximum overhead size from CBOR serialization of operation messages.
-///
-/// A serialized `FinishRequest` includes the following additional bytes over and
-/// above the size of the input (at most):
-/// -    1: array wrapper (0x86)
-///   -  9: int (0x1b + u64) [op_handle]
-///   -  1: array wrapper (0x81) [input]
-///      -  9: input data length
-///      - XX:  input data
-///   -  1: array wrapper (0x81) [signature]
-///      - 5: signature data length
-///      - 132: signature data (P-521 point)
-///   -  1: array wrapper (0x81) [auth_token]
-///      -  9: int (0x1b + u64) [challenge]
-///      -  9: int (0x1b + u64) [user_id]
-///      -  9: int (0x1b + u64) [authenticator_id]
-///      -  9: int (0x1b + u64) [authenticator_type]
-///      -  1: array wrapper (0x81)[timestamp]
-///         -  9: int (0x1b + u64) [user_id]
-///      -  2: bstr header [mac]
-///      - 32: bstr [mac]
-///   -  1: array wrapper (0x81) [timestamp_token]
-///      -  1: array wrapper [TimeStampToken]
-///         -  9: int (0x1b + u64) [challenge]
-///         -  1: array wrapper (0x81)[timestamp]
-///            -  9: int (0x1b + u64) [user_id]
-///         -  2: bstr header [mac]
-///         - 32: bstr [mac]
-///   -  1: array wrapper (0x81) [confirmation_token]
-///      -  2: bstr header [confirmation token]
-///      - 32: bstr [confirmation token (HMAC-SHA256)]
-///
-/// Add some leeway in case encodings change.
 pub const MAX_CBOR_OVERHEAD: usize = 350;
 
-/// IKeyMintDevice implementation which converts all method invocations to serialized
-/// requests that are sent down the associated channel.
 pub struct Device<T: SerializedChannel + 'static> {
     channel: Arc<Mutex<T>>,
 }
 
 impl<T: SerializedChannel + 'static> Device<T> {
-    /// Construct a new instance that uses the provided channel.
     pub fn new(channel: Arc<Mutex<T>>) -> Self {
         Self { channel }
     }
 
-    /// Create a new instance wrapped in a proxy object.
     pub fn new_as_binder(
         channel: Arc<Mutex<T>>,
     ) -> binder::Strong<dyn keymint::IKeyMintDevice::IKeyMintDevice> {
@@ -100,8 +61,9 @@ impl<T: SerializedChannel> keymint::IKeyMintDevice::IKeyMintDevice for Device<T>
         Ok(rsp.ret.innto())
     }
     fn addRngEntropy(&self, data: &[u8]) -> binder::Result<()> {
-        let _rsp: AddRngEntropyResponse =
-            self.execute(AddRngEntropyRequest { data: data.to_vec() })?;
+        let _rsp: AddRngEntropyResponse = self.execute(AddRngEntropyRequest {
+            data: data.to_vec(),
+        })?;
         Ok(())
     }
     fn generateKey(
@@ -183,8 +145,9 @@ impl<T: SerializedChannel> keymint::IKeyMintDevice::IKeyMintDevice for Device<T>
         Ok(rsp.ret)
     }
     fn deleteKey(&self, keyBlob: &[u8]) -> binder::Result<()> {
-        let _rsp: DeleteKeyResponse =
-            self.execute(DeleteKeyRequest { key_blob: keyBlob.to_vec() })?;
+        let _rsp: DeleteKeyResponse = self.execute(DeleteKeyRequest {
+            key_blob: keyBlob.to_vec(),
+        })?;
         Ok(())
     }
     fn deleteAllKeys(&self) -> binder::Result<()> {
@@ -227,11 +190,7 @@ impl<T: SerializedChannel> keymint::IKeyMintDevice::IKeyMintDevice for Device<T>
                 Some(t) => Some(t.clone().try_innto().map_err(failed_conversion)?),
             },
         })?;
-        // The `begin()` method is a special case.
-        // - Internally, the in-progress operation is identified by an opaque handle value.
-        // - Externally, the in-progress operation is represented as an `IKeyMintOperation` Binder
-        //   object.
-        // The `WireOperation` struct contains the former, and acts as the latter.
+
         let op = Operation::new_as_binder(self.channel.clone(), rsp.ret.op_handle);
         Ok(keymint::BeginResult::BeginResult {
             challenge: rsp.ret.challenge,
@@ -244,7 +203,6 @@ impl<T: SerializedChannel> keymint::IKeyMintDevice::IKeyMintDevice for Device<T>
         _passwordOnly: bool,
         _timestampToken: Option<&TimeStampToken>,
     ) -> binder::Result<()> {
-        // This method is deprecated and unused, so just fail with error UNIMPLEMENTED.
         warn!("Deprecated method devicedLocked() was called");
         Err(binder::Status::new_service_specific_error(
             keymint::ErrorCode::ErrorCode::UNIMPLEMENTED.0,
@@ -283,14 +241,16 @@ impl<T: SerializedChannel> keymint::IKeyMintDevice::IKeyMintDevice for Device<T>
     }
     #[cfg(feature = "hal_v2")]
     fn getRootOfTrust(&self, challenge: &[u8; 16]) -> binder::Result<Vec<u8>> {
-        let rsp: GetRootOfTrustResponse =
-            self.execute(GetRootOfTrustRequest { challenge: *challenge })?;
+        let rsp: GetRootOfTrustResponse = self.execute(GetRootOfTrustRequest {
+            challenge: *challenge,
+        })?;
         Ok(rsp.ret)
     }
     #[cfg(feature = "hal_v2")]
     fn sendRootOfTrust(&self, root_of_trust: &[u8]) -> binder::Result<()> {
-        let _rsp: SendRootOfTrustResponse =
-            self.execute(SendRootOfTrustRequest { root_of_trust: root_of_trust.to_vec() })?;
+        let _rsp: SendRootOfTrustResponse = self.execute(SendRootOfTrustRequest {
+            root_of_trust: root_of_trust.to_vec(),
+        })?;
         Ok(())
     }
     #[cfg(feature = "hal_v4")]
@@ -310,7 +270,6 @@ impl<T: SerializedChannel> keymint::IKeyMintDevice::IKeyMintDevice for Device<T>
     }
 }
 
-/// Representation of an in-progress KeyMint operation on a `SerializedChannel`.
 #[derive(Debug)]
 struct Operation<T: SerializedChannel + 'static> {
     channel: Arc<Mutex<T>>,
@@ -319,7 +278,6 @@ struct Operation<T: SerializedChannel + 'static> {
 
 impl<T: SerializedChannel + 'static> Drop for Operation<T> {
     fn drop(&mut self) {
-        // Ensure that the TA is kept up-to-date by calling `abort()`, but ignore the result.
         let _ = self.abort();
     }
 }
@@ -329,8 +287,6 @@ impl<T: SerializedChannel> ChannelHalService<T> for Operation<T> {
         self.channel.lock().unwrap()
     }
 
-    /// Execute the given request as part of the operation.  If the request fails, the operation is
-    /// invalidated (and any future requests for the operation will fail).
     fn execute<R, S>(&self, req: R) -> binder::Result<S>
     where
         R: AsCborValue + Code<KeyMintOperation>,
@@ -338,7 +294,6 @@ impl<T: SerializedChannel> ChannelHalService<T> for Operation<T> {
     {
         let result = super::channel_execute(self.channel().deref_mut(), req);
         if result.is_err() {
-            // Any failed method on an operation terminates the operation.
             self.invalidate();
         }
         result
@@ -348,12 +303,14 @@ impl<T: SerializedChannel> ChannelHalService<T> for Operation<T> {
 impl<T: SerializedChannel> binder::Interface for Operation<T> {}
 
 impl<T: SerializedChannel + 'static> Operation<T> {
-    /// Create a new `Operation` wrapped in a proxy object.
     fn new_as_binder(
         channel: Arc<Mutex<T>>,
         op_handle: i64,
     ) -> binder::Strong<dyn keymint::IKeyMintOperation::IKeyMintOperation> {
-        let op = Self { channel, op_handle: RwLock::new(Some(op_handle)) };
+        let op = Self {
+            channel,
+            op_handle: RwLock::new(Some(op_handle)),
+        };
         keymint::IKeyMintOperation::BnKeyMintOperation::new_binder(
             op,
             binder::BinderFeatures::default(),
@@ -362,15 +319,12 @@ impl<T: SerializedChannel + 'static> Operation<T> {
 }
 
 impl<T: SerializedChannel> Operation<T> {
-    // Maximum size allowed for the operation data.
     const MAX_DATA_SIZE: usize = T::MAX_SIZE - MAX_CBOR_OVERHEAD;
 
-    /// Invalidate the operation.
     fn invalidate(&self) {
         *self.op_handle.write().unwrap() = None;
     }
 
-    /// Retrieve the operation handle, if not already failed.
     fn validate_handle(&self) -> binder::Result<i64> {
         self.op_handle.read().unwrap().ok_or_else(|| {
             binder::Status::new_service_specific_error(
@@ -381,10 +335,6 @@ impl<T: SerializedChannel> Operation<T> {
     }
 }
 
-/// Implement the `IKeyMintOperation` interface for a [`Operation`].  Each method invocation is
-/// serialized into a request message that is sent over the `Operation`'s channel, and a
-/// corresponding response message is read.  This response message is deserialized back into the
-/// method's output value(s).
 impl<T: SerializedChannel + 'static> keymint::IKeyMintOperation::IKeyMintOperation
     for Operation<T>
 {
@@ -409,7 +359,6 @@ impl<T: SerializedChannel + 'static> keymint::IKeyMintOperation::IKeyMintOperati
             req.input = input[..batch_len].to_vec();
             input = &input[batch_len..];
             let _rsp: UpdateAadResponse = self.execute(req).inspect_err(|_| {
-                // Any failure invalidates the operation
                 self.invalidate();
             })?;
         }
@@ -494,7 +443,7 @@ impl<T: SerializedChannel + 'static> keymint::IKeyMintOperation::IKeyMintOperati
                 confirmation_token,
             })
         };
-        // Finish always invalidates the operation.
+
         self.invalidate();
         result.map(|rsp| {
             output.extend_from_slice(&rsp.ret);
@@ -502,9 +451,10 @@ impl<T: SerializedChannel + 'static> keymint::IKeyMintOperation::IKeyMintOperati
         })
     }
     fn abort(&self) -> binder::Result<()> {
-        let result: binder::Result<AbortResponse> =
-            self.execute(AbortRequest { op_handle: self.validate_handle()? });
-        // Abort always invalidates the operation.
+        let result: binder::Result<AbortResponse> = self.execute(AbortRequest {
+            op_handle: self.validate_handle()?,
+        });
+
         self.invalidate();
         let _ = result?;
         Ok(())

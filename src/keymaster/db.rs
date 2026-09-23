@@ -12,35 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This is the Keystore 2.0 database module.
-//! The database module provides a connection to the backing SQLite store.
-//! We have two databases one for persistent key blob storage and one for
-//! items that have a per boot life cycle.
-//!
-//! ## Persistent database
-//! The persistent database has tables for key blobs. They are organized
-//! as follows:
-//! The `keyentry` table is the primary table for key entries. It is
-//! accompanied by two tables for blobs and parameters.
-//! Each key entry occupies exactly one row in the `keyentry` table and
-//! zero or more rows in the tables `blobentry` and `keyparameter`.
-//!
-//! ## Per boot database
-//! The per boot database stores items with a per boot lifecycle.
-//! Currently, there is only the `grant` table in this database.
-//! Grants are references to a key that can be used to access a key by
-//! clients that don't own that key. Grants can only be created by the
-//! owner of a key. And only certain components can create grants.
-//! This is governed by SEPolicy.
-//!
-//! ## Access control
-//! Some database functions that load keys or create grants perform
-//! access control. This is because in some cases access control
-//! can only be performed after some information about the designated
-//! key was loaded from the database. To decouple the permission checks
-//! from the database module these functions take permission check
-//! callbacks.
-
 use crate::android::hardware::security::keymint::{
     HardwareAuthToken::HardwareAuthToken, HardwareAuthenticatorType::HardwareAuthenticatorType,
     SecurityLevel::SecurityLevel,
@@ -89,8 +60,6 @@ use x509_cert::{der::Decode, Certificate};
 
 use TransactionBehavior::Immediate;
 
-/// Wrapper for `rusqlite::TransactionBehavior` which includes information about the transaction
-/// being performed.
 #[derive(Clone, Copy)]
 enum TransactionBehavior {
     Deferred,
@@ -115,7 +84,6 @@ impl TransactionBehavior {
     }
 }
 
-/// Access information for a key.
 #[derive(Debug)]
 struct KeyAccessInfo {
     key_id: i64,
@@ -123,33 +91,32 @@ struct KeyAccessInfo {
     vector: Option<KeyPermSet>,
 }
 
-/// If the database returns a busy error code, retry after this interval.
 const DB_BUSY_RETRY_INTERVAL: Duration = Duration::from_micros(500);
 
 impl_metadata!(
-    /// A set of metadata for key entries.
+
     #[derive(Debug, Default, Eq, PartialEq)]
     pub struct KeyMetaData;
-    /// A metadata entry for key entries.
+
     #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
     pub enum KeyMetaEntry {
-        /// Date of the creation of the key entry.
+
         CreationDate(DateTime) with accessor creation_date,
-        /// Expiration date for attestation keys.
+
         AttestationExpirationDate(DateTime) with accessor attestation_expiration_date,
-        /// CBOR Blob that represents a COSE_Key and associated metadata needed for remote
-        /// provisioning
+
+
         AttestationMacedPublicKey(Vec<u8>) with accessor attestation_maced_public_key,
-        /// Vector representing the raw public key so results from the server can be matched
-        /// to the right entry
+
+
         AttestationRawPubKey(Vec<u8>) with accessor attestation_raw_pub_key,
-        /// SEC1 public key for ECDH encryption
+
         Sec1PublicKey(Vec<u8>) with accessor sec1_public_key,
-        /// Keybox identity prefix used to produce this entry's device attestation chain.
+
         KeyboxAttestationUuidPrefix(Vec<u8>) with accessor keybox_attestation_uuid_prefix,
-        //  --- ADD NEW META DATA FIELDS HERE ---
-        // For backwards compatibility add new entries only to
-        // end of this list and above this comment.
+
+
+
     };
 );
 
@@ -204,32 +171,32 @@ impl KeyMetaData {
 }
 
 impl_metadata!(
-    /// A set of metadata for key blobs.
+
     #[derive(Debug, Default, Eq, PartialEq)]
     pub struct BlobMetaData;
-    /// A metadata entry for key blobs.
+
     #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
     pub enum BlobMetaEntry {
-        /// If present, indicates that the blob is encrypted with another key or a key derived
-        /// from a password.
+
+
         EncryptedBy(EncryptedBy) with accessor encrypted_by,
-        /// If the blob is password encrypted this field is set to the
-        /// salt used for the key derivation.
+
+
         Salt(Vec<u8>) with accessor salt,
-        /// If the blob is encrypted, this field is set to the initialization vector.
+
         Iv(Vec<u8>) with accessor iv,
-        /// If the blob is encrypted, this field holds the AEAD TAG.
+
         AeadTag(Vec<u8>) with accessor aead_tag,
-        /// The uuid of the owning KeyMint instance.
+
         KmUuid(Uuid) with accessor km_uuid,
-        /// If the key is ECDH encrypted, this is the ephemeral public key
+
         PublicKey(Vec<u8>) with accessor public_key,
-        /// If the key is encrypted with a MaxBootLevel key, this is the boot level
-        /// of that key
+
+
         MaxBootLevel(i32) with accessor max_boot_level,
-        //  --- ADD NEW META DATA FIELDS HERE ---
-        // For backwards compatibility add new entries only to
-        // end of this list and above this comment.
+
+
+
     };
 );
 
@@ -284,18 +251,11 @@ impl BlobMetaData {
     }
 }
 
-/// Indicates the type of the keyentry.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum KeyType {
-    /// This is a client key type. These keys are created or imported through the Keystore 2.0
-    /// AIDL interface android.system.keystore2.
     Client,
-    /// This is a super key type. These keys are created by keystore itself and used to encrypt
-    /// other key blobs to provide LSKF binding.
+
     Super,
-    // A previous version also had `Attestation` as value 2 (removed in
-    // https://r.android.com/2587525).  Avoid re-using that value just in case there are any
-    // left-over rows from old devices that have been updated.
 }
 
 impl ToSql for KeyType {
@@ -303,7 +263,6 @@ impl ToSql for KeyType {
         Ok(ToSqlOutput::Owned(Value::Integer(match self {
             KeyType::Client => 0,
             KeyType::Super => 1,
-            // Value 2 is reserved; was previously `KeyType::Attestation`
         })))
     }
 }
@@ -313,15 +272,12 @@ impl FromSql for KeyType {
         match i64::column_result(value)? {
             0 => Ok(KeyType::Client),
             1 => Ok(KeyType::Super),
-            // Value 2 is reserved; was previously `KeyType::Attestation`
+
             v => Err(FromSqlError::OutOfRange(v)),
         }
     }
 }
 
-/// Uuid representation that can be stored in the database.
-/// Right now it can only be initialized from SecurityLevel.
-/// Once KeyMint provides a UUID type a corresponding From impl shall be added.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Uuid([u8; 16]);
 
@@ -389,21 +345,14 @@ impl FromSql for Uuid {
     }
 }
 
-/// Key entries that are not associated with any KeyMint instance, such as pure certificate
-/// entries are associated with this UUID.
 pub static KEYSTORE_UUID: Uuid = Uuid([
     0x41, 0xe3, 0xb9, 0xce, 0x27, 0x58, 0x4e, 0x91, 0xbc, 0xfd, 0xa5, 0x5d, 0x91, 0x85, 0xab, 0x11,
 ]);
 
-/// Indicates how the sensitive part of this key blob is encrypted.
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum EncryptedBy {
-    /// The keyblob is encrypted by a user password.
-    /// In the database this variant is represented as NULL.
     Password,
-    /// The keyblob is encrypted by another key with wrapped key id.
-    /// In the database this variant is represented as non NULL value
-    /// that is convertible to i64, typically NUMERIC.
+
     KeyId(i64),
 }
 
@@ -425,31 +374,22 @@ impl FromSql for EncryptedBy {
     }
 }
 
-/// A database representation of wall clock time. DateTime stores unix epoch time as
-/// i64 in milliseconds.
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub struct DateTime(i64);
 
-/// Error type returned when creating DateTime or converting it from and to
-/// SystemTime.
 #[derive(thiserror::Error, Debug)]
 pub enum DateTimeError {
-    /// This is returned when SystemTime and Duration computations fail.
     #[error(transparent)]
     SystemTimeError(#[from] SystemTimeError),
 
-    /// This is returned when type conversions fail.
     #[error(transparent)]
     TypeConversion(#[from] std::num::TryFromIntError),
 
-    /// This is returned when checked time arithmetic failed.
     #[error("Time arithmetic failed.")]
     TimeArithmetic,
 }
 
 impl DateTime {
-    /// Constructs a new DateTime object denoting the current time. This may fail during
-    /// conversion to unix epoch time and during conversion to the internal i64 representation.
     pub fn now() -> Result<Self, DateTimeError> {
         Ok(Self(
             SystemTime::now()
@@ -459,12 +399,10 @@ impl DateTime {
         ))
     }
 
-    /// Constructs a new DateTime object from milliseconds.
     pub fn from_millis_epoch(millis: i64) -> Self {
         Self(millis)
     }
 
-    /// Returns unix epoch time in milliseconds.
     pub fn to_millis_epoch(self) -> i64 {
         self.0
     }
@@ -486,24 +424,15 @@ impl TryInto<SystemTime> for DateTime {
     type Error = DateTimeError;
 
     fn try_into(self) -> Result<SystemTime, Self::Error> {
-        // We want to construct a SystemTime representation equivalent to self, denoting
-        // a point in time THEN, but we cannot set the time directly. We can only construct
-        // a SystemTime denoting NOW, and we can get the duration between EPOCH and NOW,
-        // and between EPOCH and THEN. With this common reference we can construct the
-        // duration between NOW and THEN which we can add to our SystemTime representation
-        // of NOW to get a SystemTime representation of THEN.
-        // Durations can only be positive, thus the if statement below.
         let now = SystemTime::now();
         let now_epoch = now.duration_since(SystemTime::UNIX_EPOCH)?;
         let then_epoch = Duration::from_millis(self.0.try_into()?);
         Ok(if now_epoch > then_epoch {
-            // then = now - (now_epoch - then_epoch)
             now_epoch
                 .checked_sub(then_epoch)
                 .and_then(|d| now.checked_sub(d))
                 .ok_or(DateTimeError::TimeArithmetic)?
         } else {
-            // then = now + (then_epoch - now_epoch)
             then_epoch
                 .checked_sub(now_epoch)
                 .and_then(|d| now.checked_add(d))
@@ -526,13 +455,10 @@ impl TryFrom<SystemTime> for DateTime {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 enum KeyLifeCycle {
-    /// Existing keys have a key ID but are not fully populated yet.
-    /// This is a transient state. If Keystore finds any such keys when it starts up, it must move
-    /// them to Unreferenced for garbage collection.
     Existing,
-    /// A live key is fully populated and usable by clients.
+
     Live,
-    /// An unreferenced key is scheduled for garbage collection.
+
     Unreferenced,
 }
 
@@ -557,16 +483,13 @@ impl FromSql for KeyLifeCycle {
     }
 }
 
-/// Current state of a `blobentry` row.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Default)]
 enum BlobState {
     #[default]
-    /// Current blobentry (of its `subcomponent_type`) for the associated key.
     Current,
-    /// Blobentry that is no longer the current blob (of its `subcomponent_type`) for the associated
-    /// key.
+
     Superseded,
-    /// Blobentry for a key that no longer exists.
+
     Orphaned,
 }
 
@@ -591,29 +514,22 @@ impl FromSql for BlobState {
     }
 }
 
-/// Keys have a KeyMint blob component and optional public certificate and
-/// certificate chain components.
-/// KeyEntryLoadBits is a bitmap that indicates to `KeystoreDB::load_key_entry`
-/// which components shall be loaded from the database if present.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 pub struct KeyEntryLoadBits(u32);
 
 impl KeyEntryLoadBits {
-    /// Indicate to `KeystoreDB::load_key_entry` that no component shall be loaded.
     pub const NONE: KeyEntryLoadBits = Self(0);
-    /// Indicate to `KeystoreDB::load_key_entry` that the KeyMint component shall be loaded.
+
     pub const KM: KeyEntryLoadBits = Self(1);
-    /// Indicate to `KeystoreDB::load_key_entry` that the Public components shall be loaded.
+
     pub const PUBLIC: KeyEntryLoadBits = Self(2);
-    /// Indicate to `KeystoreDB::load_key_entry` that both components shall be loaded.
+
     pub const BOTH: KeyEntryLoadBits = Self(3);
 
-    /// Returns true if this object indicates that the public components shall be loaded.
     pub const fn load_public(&self) -> bool {
         self.0 & Self::PUBLIC.0 != 0
     }
 
-    /// Returns true if the object indicates that the KeyMint component shall be loaded.
     pub const fn load_km(&self) -> bool {
         self.0 & Self::KM.0 != 0
     }
@@ -626,9 +542,6 @@ struct KeyIdLockDb {
     cond_var: Condvar,
 }
 
-/// A locked key. While a guard exists for a given key id, the same key cannot be loaded
-/// from the database a second time. Most functions manipulating the key blob database
-/// require a KeyIdGuard.
 #[derive(Debug)]
 pub struct KeyIdGuard(i64);
 
@@ -640,9 +553,6 @@ impl KeyIdLockDb {
         }
     }
 
-    /// This function blocks until an exclusive lock for the given key entry id can
-    /// be acquired. It returns a guard object, that represents the lifecycle of the
-    /// acquired lock.
     fn get(&self, key_id: i64) -> KeyIdGuard {
         let mut locked_keys = self.locked_keys.lock().unwrap();
         while locked_keys.contains(&key_id) {
@@ -652,10 +562,6 @@ impl KeyIdLockDb {
         KeyIdGuard(key_id)
     }
 
-    /// This function attempts to acquire an exclusive lock on a given key id. If the
-    /// given key id is already taken the function returns None immediately. If a lock
-    /// can be acquired this function returns a guard object, that represents the
-    /// lifecycle of the acquired lock.
     fn try_get(&self, key_id: i64) -> Option<KeyIdGuard> {
         let mut locked_keys = self.locked_keys.lock().unwrap();
         if locked_keys.insert(key_id) {
@@ -667,7 +573,6 @@ impl KeyIdLockDb {
 }
 
 impl KeyIdGuard {
-    /// Get the numeric key id of the locked key.
     pub fn id(&self) -> i64 {
         self.0
     }
@@ -682,28 +587,21 @@ impl Drop for KeyIdGuard {
     }
 }
 
-/// This type represents a certificate and certificate chain entry for a key.
 #[derive(Debug, Default)]
 pub struct CertificateInfo {
     cert: Option<Vec<u8>>,
     cert_chain: Option<Vec<u8>>,
 }
 
-/// This type represents a Blob with its metadata and an optional superseded blob.
 #[derive(Debug)]
 pub struct BlobInfo<'a> {
     blob: &'a [u8],
     metadata: &'a BlobMetaData,
-    /// Superseded blobs are an artifact of legacy import. In some rare occasions
-    /// the key blob needs to be upgraded during import. In that case two
-    /// blob are imported, the superseded one will have to be imported first,
-    /// so that the garbage collector can reap it.
+
     superseded_blob: Option<(&'a [u8], &'a BlobMetaData)>,
 }
 
 impl<'a> BlobInfo<'a> {
-    /// Create a new instance of blob info with blob and corresponding metadata
-    /// and no superseded blob info.
     pub fn new(blob: &'a [u8], metadata: &'a BlobMetaData) -> Self {
         Self {
             blob,
@@ -712,8 +610,6 @@ impl<'a> BlobInfo<'a> {
         }
     }
 
-    /// Create a new instance of blob info with blob and corresponding metadata
-    /// as well as superseded blob info.
     pub fn new_with_superseded(
         blob: &'a [u8],
         metadata: &'a BlobMetaData,
@@ -728,38 +624,27 @@ impl<'a> BlobInfo<'a> {
 }
 
 impl CertificateInfo {
-    /// Constructs a new CertificateInfo object from `cert` and `cert_chain`
     pub fn new(cert: Option<Vec<u8>>, cert_chain: Option<Vec<u8>>) -> Self {
         Self { cert, cert_chain }
     }
 
-    /// Take the cert
     pub fn take_cert(&mut self) -> Option<Vec<u8>> {
         self.cert.take()
     }
 
-    /// Take the cert chain
     pub fn take_cert_chain(&mut self) -> Option<Vec<u8>> {
         self.cert_chain.take()
     }
 }
 
-/// This type represents a certificate chain with a private key corresponding to the leaf
-/// certificate. TODO(jbires): This will be used in a follow-on CL, for now it's used in the tests.
 pub struct CertificateChain {
-    /// A KM key blob
     pub private_key: ZVec,
-    /// A batch cert for private_key
+
     pub batch_cert: Vec<u8>,
-    /// A full certificate chain from root signing authority to private_key, including batch_cert
-    /// for convenience.
+
     pub cert_chain: Vec<u8>,
 }
 
-/// This type represents a Keystore 2.0 key entry.
-/// An entry has a unique `id` by which it can be found in the database.
-/// It has a security level field, key parameters, and three optional fields
-/// for the KeyMint blob, public certificate and a public certificate chain.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct KeyEntry {
     id: i64,
@@ -773,49 +658,46 @@ pub struct KeyEntry {
 }
 
 impl KeyEntry {
-    /// Returns the unique id of the Key entry.
     pub fn id(&self) -> i64 {
         self.id
     }
-    /// Exposes the optional KeyMint blob.
+
     pub fn key_blob_info(&self) -> &Option<(Vec<u8>, BlobMetaData)> {
         &self.key_blob_info
     }
-    /// Extracts the Optional KeyMint blob including its metadata.
+
     pub fn take_key_blob_info(&mut self) -> Option<(Vec<u8>, BlobMetaData)> {
         self.key_blob_info.take()
     }
-    /// Exposes the optional public certificate.
+
     pub fn cert(&self) -> &Option<Vec<u8>> {
         &self.cert
     }
-    /// Extracts the optional public certificate.
+
     pub fn take_cert(&mut self) -> Option<Vec<u8>> {
         self.cert.take()
     }
-    /// Extracts the optional public certificate_chain.
+
     pub fn take_cert_chain(&mut self) -> Option<Vec<u8>> {
         self.cert_chain.take()
     }
-    /// Returns the uuid of the owning KeyMint instance.
+
     pub fn km_uuid(&self) -> &Uuid {
         &self.km_uuid
     }
-    /// Consumes this key entry and extracts the keyparameters from it.
+
     pub fn into_key_parameters(self) -> Vec<KeyParameter> {
         self.parameters
     }
-    /// Exposes the key metadata of this key entry.
+
     pub fn metadata(&self) -> &KeyMetaData {
         &self.metadata
     }
-    /// This returns true if the entry is a pure certificate entry with no
-    /// private key component.
+
     pub fn pure_cert(&self) -> bool {
         self.pure_cert
     }
-    /// This returns true if the entry corresponds to an attested key.
-    /// A key is considered attested if it has an associated certificate chain.
+
     pub fn is_attested(&self) -> bool {
         self.cert_chain.is_some()
     }
@@ -828,15 +710,13 @@ type LoadedBlobComponents = (
     Option<Vec<u8>>,
 );
 
-/// Indicates the sub component of a key entry for persistent storage.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 pub struct SubComponentType(u32);
 impl SubComponentType {
-    /// Persistent identifier for a key blob.
     pub const KEY_BLOB: SubComponentType = Self(0);
-    /// Persistent identifier for a certificate blob.
+
     pub const CERT: SubComponentType = Self(1);
-    /// Persistent identifier for a certificate chain blob.
+
     pub const CERT_CHAIN: SubComponentType = Self(2);
 }
 
@@ -852,12 +732,6 @@ impl FromSql for SubComponentType {
     }
 }
 
-/// This trait is private to the database module. It is used to convey whether or not the garbage
-/// collector shall be invoked after a database access. All closures passed to
-/// `KeystoreDB::with_transaction` return a tuple (bool, T) where the bool indicates if the
-/// gc needs to be triggered. This convenience function allows to turn any anyhow::Result<T>
-/// into anyhow::Result<(bool, T)> by simply appending one of `.do_gc(bool)`, `.no_gc()`, or
-/// `.need_gc()`.
 trait DoGc<T> {
     fn do_gc(self, need_gc: bool) -> Result<(bool, T)>;
 
@@ -880,8 +754,6 @@ impl<T> DoGc<T> for Result<T> {
     }
 }
 
-/// KeystoreDB wraps a connection to an SQLite database and tracks its
-/// ownership. It also implements all of Keystore 2.0's database functionality.
 pub struct KeystoreDB {
     conn: Connection,
     gc: Option<Arc<Gc>>,
@@ -890,28 +762,22 @@ pub struct KeystoreDB {
 
 pub type KeymasterDb = KeystoreDB;
 
-/// Database representation of the monotonic time retrieved from the system call clock_gettime with
-/// CLOCK_BOOTTIME. Stores monotonic time as i64 in milliseconds.
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub struct BootTime(i64);
 
 impl BootTime {
-    /// Constructs a new BootTime
     pub fn now() -> Self {
         Self(get_current_time_in_milliseconds())
     }
 
-    /// Returns the value of BootTime in milliseconds as i64
     pub fn milliseconds(&self) -> i64 {
         self.0
     }
 
-    /// Returns the integer value of BootTime as i64
     pub fn seconds(&self) -> i64 {
         self.0 / 1000
     }
 
-    /// Like i64::checked_sub.
     pub fn checked_sub(&self, other: &Self) -> Option<Self> {
         self.0.checked_sub(other.0).map(Self)
     }
@@ -929,12 +795,10 @@ impl FromSql for BootTime {
     }
 }
 
-/// This struct encapsulates the information to be stored in the database about the auth tokens
-/// received by keystore.
 #[derive(Clone)]
 pub struct AuthTokenEntry {
     auth_token: HardwareAuthToken,
-    // Time received in milliseconds
+
     time_received: BootTime,
 }
 
@@ -946,7 +810,6 @@ impl AuthTokenEntry {
         }
     }
 
-    /// Checks if this auth token satisfies the given authentication information.
     pub fn satisfies(
         &self,
         user_sids: &[SecureUserId],
@@ -958,36 +821,28 @@ impl AuthTokenEntry {
         })
     }
 
-    /// Returns the auth token wrapped by the AuthTokenEntry
     pub fn auth_token(&self) -> &HardwareAuthToken {
         &self.auth_token
     }
 
-    /// Returns the auth token wrapped by the AuthTokenEntry
     pub fn take_auth_token(self) -> HardwareAuthToken {
         self.auth_token
     }
 
-    /// Returns the time that this auth token was received.
     pub fn time_received(&self) -> BootTime {
         self.time_received
     }
 
-    /// Returns the challenge value of the auth token.
     pub fn challenge(&self) -> Challenge {
         Challenge(self.auth_token.challenge)
     }
 }
 
-/// Information about a superseded blob (a blob that is no longer the
-/// most recent blob of that type for a given key, due to upgrade or
-/// replacement).
 pub struct SupersededBlob {
-    /// ID
     pub blob_id: i64,
-    /// Contents.
+
     pub blob: Vec<u8>,
-    /// Metadata.
+
     pub metadata: BlobMetaData,
 }
 
@@ -1001,14 +856,8 @@ impl KeystoreDB {
         Self::from_3_to_4,
     ];
 
-    /// Name of the file that holds the cross-boot persistent database.
     pub const PERSISTENT_DB_FILENAME: &'static str = "keymaster.db";
 
-    /// This will create a new database connection connecting the cross-boot
-    /// persistent database and perboot.sqlite in the given directory.
-    /// It also attempts to initialize all of the tables.
-    /// KeystoreDB cannot be used by multiple threads.
-    /// Each thread should open their own connection using `thread_local!`.
     pub fn new(db_root: &Path, gc: Option<Arc<Gc>>) -> Result<Self> {
         let _wp = wd::watch("KeystoreDB::new");
 
@@ -1030,8 +879,6 @@ impl KeystoreDB {
         Ok(db)
     }
 
-    // This upgrade function deletes all MAX_BOOT_LEVEL keys, that were generated before
-    // cryptographic binding to the boot level keys was implemented.
     fn from_0_to_1(tx: &Transaction) -> Result<u32> {
         tx.execute(
             "UPDATE persistent.keyentry SET state = ?
@@ -1052,13 +899,9 @@ impl KeystoreDB {
         )
         .context(ks_err!("Failed to delete logical boot level keys."))?;
 
-        // DB version is now 1.
         Ok(1)
     }
 
-    // This upgrade function adds an additional `state INTEGER` column to the blobentry
-    // table, and populates it based on whether each blob is the most recent of its type for
-    // the corresponding key.
     fn from_1_to_2(tx: &Transaction) -> Result<u32> {
         let has_state_column = tx
             .query_row(
@@ -1077,8 +920,6 @@ impl KeystoreDB {
             .context(ks_err!("Failed to add state column"))?;
         }
 
-        // Mark keyblobs that are not the most recent for their corresponding key.
-        // This may take a while if there are excessive numbers of keys in the database.
         let _wp = wd::watch("KeystoreDB::from_1_to_2 mark all non-current keyblobs");
         let sc_key_blob = SubComponentType::KEY_BLOB;
         let mut stmt = tx
@@ -1096,8 +937,6 @@ impl KeystoreDB {
             .context(ks_err!("Failed to set state=superseded state for keyblobs"))?;
         info!("marked non-current blobentry rows for keyblobs as superseded");
 
-        // Mark keyblobs that don't have a corresponding key.
-        // This may take a while if there are excessive numbers of keys in the database.
         let _wp = wd::watch("KeystoreDB::from_1_to_2 mark all orphaned keyblobs");
         let mut stmt = tx
             .prepare(
@@ -1111,7 +950,6 @@ impl KeystoreDB {
             .context(ks_err!("Failed to set state=orphaned for keyblobs"))?;
         info!("marked orphaned blobentry rows for keyblobs");
 
-        // Add an index to make it fast to find out of date blobentry rows.
         let _wp = wd::watch("KeystoreDB::from_1_to_2 add blobentry index");
         tx.execute(
             "CREATE INDEX IF NOT EXISTS persistent.blobentry_state_index
@@ -1120,7 +958,6 @@ impl KeystoreDB {
         )
         .context("Failed to create index blobentry_state_index.")?;
 
-        // Add an index to make it fast to find unreferenced keyentry rows.
         let _wp = wd::watch("KeystoreDB::from_1_to_2 add keyentry state index");
         tx.execute(
             "CREATE INDEX IF NOT EXISTS persistent.keyentry_state_index
@@ -1129,11 +966,9 @@ impl KeystoreDB {
         )
         .context("Failed to create index keyentry_state_index.")?;
 
-        // DB version is now 2.
         Ok(2)
     }
 
-    // Record keybox identity prefixes for legacy client keys with a device attestation chain.
     fn from_2_to_3(tx: &Transaction) -> Result<u32> {
         Self::init_tables(tx)?;
 
@@ -1231,11 +1066,9 @@ impl KeystoreDB {
             .context("Trying to insert keybox attestation metadata")?;
         }
 
-        // DB version is now 3.
         Ok(3)
     }
 
-    // Normalize legacy OS versions cached from KeyMint key characteristics.
     fn from_3_to_4(tx: &Transaction) -> Result<u32> {
         let updated = tx
             .execute(
@@ -1247,7 +1080,6 @@ impl KeystoreDB {
             .context(ks_err!("Failed to normalize legacy OS versions"))?;
         info!("normalized {updated} legacy OS version key parameters");
 
-        // DB version is now 4.
         Ok(4)
     }
 
@@ -1279,7 +1111,6 @@ impl KeystoreDB {
         )
         .context("Failed to create index keyentry_domain_namespace_index.")?;
 
-        // Index added in v2 of database schema.
         tx.execute(
             "CREATE INDEX IF NOT EXISTS persistent.keyentry_state_index
             ON keyentry(state);",
@@ -1293,7 +1124,7 @@ impl KeystoreDB {
                     subcomponent_type INTEGER,
                     keyentryid INTEGER,
                     blob BLOB,
-                    state INTEGER DEFAULT 0);", // `state` added in v2 of schema
+                    state INTEGER DEFAULT 0);",
             [],
         )
         .context("Failed to initialize \"blobentry\" table.")?;
@@ -1305,7 +1136,6 @@ impl KeystoreDB {
         )
         .context("Failed to create index blobentry_keyentryid_index.")?;
 
-        // Index added in v2 of database schema.
         tx.execute(
             "CREATE INDEX IF NOT EXISTS persistent.blobentry_state_index
             ON blobentry(subcomponent_type, state);",
@@ -1379,11 +1209,9 @@ impl KeystoreDB {
     }
 
     fn make_persistent_path(db_root: &Path) -> Result<String> {
-        // Build the path to the sqlite file.
         let mut persistent_path = db_root.to_path_buf();
         persistent_path.push(Self::PERSISTENT_DB_FILENAME);
 
-        // Now convert them to strings prefixed with "file:"
         let mut persistent_path_str = "file:".to_owned();
         persistent_path_str.push_str(&persistent_path.to_string_lossy());
 
@@ -1409,7 +1237,6 @@ impl KeystoreDB {
             break;
         }
 
-        // Drop the cache size from default (2M) to 0.5M
         conn.execute("PRAGMA persistent.cache_size = -500;", params![])
             .context("Failed to decrease cache size for persistent db")?;
 
@@ -1470,9 +1297,6 @@ impl KeystoreDB {
         )
     }
 
-    /// Fetches a storage statistics atom for a given storage type. For storage
-    /// types that map to a table, information about the table's storage is
-    /// returned. Requests for storage types that are not DB tables return None.
     pub fn get_storage_stat(&mut self, storage_type: MetricsStorage) -> Result<StorageStats> {
         let _wp = wd::watch_millis_with("KeystoreDB::get_storage_stat", 500, storage_type);
 
@@ -1508,17 +1332,12 @@ impl KeystoreDB {
                 self.get_table_size(storage_type, "persistent", "keymetadata_keyentryid_index")
             }
             MetricsStorage::GRANT => self.get_table_size(storage_type, "persistent", "grant"),
-            MetricsStorage::AUTH_TOKEN => {
-                // Since the table is actually a BTreeMap now, unused_size is not meaningfully
-                // reportable
-                // Size provided is only an approximation
-                Ok(StorageStats {
-                    storage_type,
-                    size: (self.perboot.auth_tokens_len() * std::mem::size_of::<AuthTokenEntry>())
-                        as i32,
-                    unused_size: 0,
-                })
-            }
+            MetricsStorage::AUTH_TOKEN => Ok(StorageStats {
+                storage_type,
+                size: (self.perboot.auth_tokens_len() * std::mem::size_of::<AuthTokenEntry>())
+                    as i32,
+                unused_size: 0,
+            }),
             MetricsStorage::BLOB_METADATA => {
                 self.get_table_size(storage_type, "persistent", "blobmetadata")
             }
@@ -1532,8 +1351,6 @@ impl KeystoreDB {
         }
     }
 
-    /// Return the top `max_usize` uids by numbers of keys owned, together with their key
-    /// count. Only return uids that own more than `min_key_count` keys.
     pub fn per_uid_counts(
         &mut self,
         max_uids: usize,
@@ -1569,11 +1386,6 @@ impl KeystoreDB {
         .context("KeystoreDB::per_uid_counts")
     }
 
-    /// This function is intended to be used by the garbage collector.
-    /// It deletes the blobs given by `blob_ids_to_delete`. It then tries to find up to `max_blobs`
-    /// superseded key blobs that might need special handling by the garbage collector.
-    /// If no further superseded blobs can be found it deletes all other superseded blobs that don't
-    /// need special handling and returns None.
     pub fn handle_next_superseded_blobs(
         &mut self,
         blob_ids_to_delete: &[i64],
@@ -1581,7 +1393,6 @@ impl KeystoreDB {
     ) -> Result<Vec<SupersededBlob>> {
         let _wp = wd::watch("KeystoreDB::handle_next_superseded_blob");
         self.with_transaction(Immediate("TX_handle_next_superseded_blob"), |tx| {
-            // Delete the given blobs.
             for blob_id in blob_ids_to_delete {
                 tx.execute(
                     "DELETE FROM persistent.blobmetadata WHERE blobentryid = ?;",
@@ -1597,7 +1408,6 @@ impl KeystoreDB {
 
             Self::cleanup_unreferenced(tx).context("Trying to cleanup unreferenced.")?;
 
-            // Find up to `max_blobs` more out-of-date key blobs, load their metadata and return it.
             let _wp = wd::watch("KeystoreDB::handle_next_superseded_blob find_next v2");
             let mut stmt = tx
                 .prepare(
@@ -1638,8 +1448,6 @@ impl KeystoreDB {
                 return Ok(result).no_gc();
             }
 
-            // We did not find any out-of-date key blobs, so let's remove other types of superseded
-            // blob in one transaction.
             let _wp = wd::watch("KeystoreDB::handle_next_superseded_blob delete v2");
             tx.execute(
                 "DELETE FROM persistent.blobentry
@@ -1652,25 +1460,10 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// This maintenance function should be called only once before the database is used for the
-    /// first time. It restores the invariant that `KeyLifeCycle::Existing` is a transient state.
-    ///
-    /// The function transitions all key entries from Existing to Unreferenced unconditionally and
-    /// returns the number of rows affected. If this returns a value greater than 0, it means that
-    /// Keystore crashed at some point during key generation. Callers may want to log such
-    /// occurrences.
-    ///
-    /// Unlike with `remove_key_rows`, we don't need to purge grants, because only keys that made
-    /// it to `KeyLifeCycle::Live` may have grants.
-    ///
-    /// The function also marks any `blobentry` rows that don't have an owning `keyentry` row as
-    /// orphaned.
     pub fn cleanup_leftovers(&mut self, orphan_limit: usize) -> Result<usize> {
         let _wp = wd::watch("KeystoreDB::cleanup_leftovers");
 
         self.with_transaction(Immediate("TX_cleanup_leftovers_mark_orphans"), |tx| {
-            // Mark as orphaned any blobentry rows that have no associated keyentry row.
-            // Apply a per-reboot limit to avoid the possibility of delayed startup.
             let marked = tx
                 .execute(
                     "UPDATE persistent.blobentry SET state = ?
@@ -1820,7 +1613,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// Checks if a key exists with given key type and key descriptor properties.
     pub fn key_exists(
         &mut self,
         domain: Domain,
@@ -1850,7 +1642,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// Stores a super key in the database.
     pub fn store_super_key(
         &mut self,
         user: AndroidUserId,
@@ -1900,7 +1691,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// Loads super key of a given user, if exists
     pub fn load_super_key(
         &mut self,
         key_type: &SuperKeyType,
@@ -1932,9 +1722,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// Creates a transaction with the given behavior and executes f with the new transaction.
-    /// The transaction is committed only if f returns Ok and retried if DatabaseBusy
-    /// or DatabaseLocked is encountered.
     fn with_transaction<T, F>(&mut self, behavior: TransactionBehavior, f: F) -> Result<T>
     where
         F: Fn(&Transaction) -> Result<(bool, T)>,
@@ -2025,13 +1812,6 @@ impl KeystoreDB {
         ))
     }
 
-    /// Set a new blob and associates it with the given key id. Each blob
-    /// has a sub component type.
-    /// Each key can have one of each sub component type associated. If more
-    /// are added only the most recent can be retrieved, and superseded blobs
-    /// will get garbage collected.
-    /// Components SubComponentType::CERT and SubComponentType::CERT_CHAIN can be
-    /// removed by setting blob to None.
     pub fn set_blob(
         &mut self,
         key_id: &KeyIdGuard,
@@ -2047,10 +1827,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// Why would we insert a deleted blob? This weird function is for the purpose of legacy
-    /// key migration in the case where we bulk delete all the keys of an app or even a user.
-    /// We use this to insert key blobs into the database which can then be garbage collected
-    /// lazily by the key garbage collector.
     pub fn set_deleted_blob(&mut self, blob: &[u8], blob_metadata: &BlobMetaData) -> Result<()> {
         let _wp = wd::watch("KeystoreDB::set_deleted_blob");
 
@@ -2076,7 +1852,6 @@ impl KeystoreDB {
     ) -> Result<()> {
         match (blob, sc_type) {
             (Some(blob), _) => {
-                // Mark any previous blobentry(s) of the same type for the same key as superseded.
                 tx.execute(
                     "UPDATE persistent.blobentry SET state = ?
                     WHERE keyentryid = ? AND subcomponent_type = ?",
@@ -2086,9 +1861,6 @@ impl KeystoreDB {
                     "Failed to mark prior {sc_type:?} blobentrys for {key_id} as superseded"
                 ))?;
 
-                // Now insert the new, un-superseded, blob.  (If this fails, the marking of
-                // old blobs as superseded will be rolled back, because we're inside a
-                // transaction.)
                 tx.execute(
                     "INSERT INTO persistent.blobentry
                      (subcomponent_type, keyentryid, blob) VALUES (?, ?, ?);",
@@ -2156,11 +1928,6 @@ impl KeystoreDB {
         Ok(())
     }
 
-    /// Updates the alias column of the given key id `newid` with the given alias,
-    /// and atomically, removes the alias, domain, and namespace from another row
-    /// with the same alias-domain-namespace tuple if such row exits.
-    /// Returns Ok(true) if an old key was marked unreferenced as a hint to the garbage
-    /// collector.
     fn rebind_alias(
         tx: &Transaction,
         newid: &KeyIdGuard,
@@ -2178,9 +1945,7 @@ impl KeystoreDB {
                 ));
             }
         }
-        // Mark any existing key for the alias/domain/namespace/key_type as `Unreferenced` (and wipe
-        // its alias/domain/namespace info) so it can be removed in a subsequent GC pass (in
-        // `cleanup_unreferenced()`).
+
         let updated = tx
             .execute(
                 "UPDATE persistent.keyentry
@@ -2195,7 +1960,7 @@ impl KeystoreDB {
                 ],
             )
             .context(ks_err!("Failed to rebind existing entry."))?;
-        // Bind the new key ID to the alias and make it `Live`.
+
         let result = tx
             .execute(
                 "UPDATE persistent.keyentry
@@ -2221,8 +1986,6 @@ impl KeystoreDB {
         Ok(updated != 0)
     }
 
-    /// Moves the key given by KeyIdGuard to the new location at `destination`. If the destination
-    /// is already occupied by a key, this function fails with `ResponseCode::INVALID_ARGUMENT`.
     pub fn migrate_key_namespace(
         &mut self,
         key_id_guard: KeyIdGuard,
@@ -2244,7 +2007,6 @@ impl KeystoreDB {
             }
         };
 
-        // Security critical: Must return immediately on failure. Do not remove the '?';
         check_permission(&destination).context(ks_err!("Trying to check permission."))?;
 
         let alias = destination
@@ -2254,7 +2016,6 @@ impl KeystoreDB {
             .context(ks_err!("Alias must be specified."))?;
 
         self.with_transaction(Immediate("TX_migrate_key_namespace"), |tx| {
-            // Query the destination location. If there is a key, the migration request fails.
             if tx
                 .query_row(
                     "SELECT id FROM persistent.keyentry
@@ -2294,11 +2055,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// Store a new key in a single transaction.
-    /// The function creates a new key entry, populates the blob, key parameter, and metadata
-    /// fields, and rebinds the given alias to the new key.
-    /// The boolean returned is a hint for the garbage collector. If true, a key was replaced,
-    /// is now unreferenced and needs to be collected.
     #[allow(clippy::too_many_arguments)]
     pub fn store_new_key(
         &mut self,
@@ -2339,11 +2095,6 @@ impl KeystoreDB {
                 superseded_blob,
             } = *blob_info;
 
-            // In some occasions the key blob is already upgraded during the import.
-            // In order to make sure it gets properly deleted it is inserted into the
-            // database here and then immediately replaced by the superseding blob.
-            // The garbage collector will then subject the blob to deleteKey of the
-            // KM back end to permanently invalidate the key.
             let need_gc = if let Some((blob, blob_metadata)) = superseded_blob {
                 Self::set_blob_internal(
                     tx,
@@ -2393,9 +2144,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// Store a new certificate
-    /// The function creates a new key entry, populates the blob field and metadata, and rebinds
-    /// the given alias to the new cert.
     pub fn store_new_certificate(
         &mut self,
         key: &KeyDescriptor,
@@ -2452,9 +2200,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    // Helper function loading the key_id given the key descriptor
-    // tuple comprising domain, namespace, and alias.
-    // Requires a valid transaction.
     fn load_key_entry_id(tx: &Transaction, key: &KeyDescriptor, key_type: KeyType) -> Result<i64> {
         let alias = key
             .alias
@@ -2489,20 +2234,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// This helper function completes the access tuple of a key, which is required
-    /// to perform access control. The strategy depends on the `domain` field in the
-    /// key descriptor.
-    /// * Domain::SELINUX: The access tuple is complete and this function only loads
-    ///   the key_id for further processing.
-    /// * Domain::APP: Like Domain::SELINUX, but the tuple is completed by `caller_uid`
-    ///   which serves as the namespace.
-    /// * Domain::GRANT: The grant table is queried for the `key_id` and the
-    ///   `access_vector`.
-    /// * Domain::KEY_ID: The keyentry table is queried for the owning `domain` and
-    ///   `namespace`.
-    ///
-    /// In each case the information returned is sufficient to perform the access
-    /// check and the key id can be used to load further key artifacts.
     fn load_access_tuple(
         tx: &Transaction,
         key: &KeyDescriptor,
@@ -2510,12 +2241,6 @@ impl KeystoreDB {
         caller_uid: AppUid,
     ) -> Result<KeyAccessInfo> {
         match key.domain {
-            // Domain App or SELinux. In this case we load the key_id from
-            // the keyentry database for further loading of key components.
-            // We already have the full access tuple to perform access control.
-            // The only distinction is that we use the caller_uid instead
-            // of the caller supplied namespace if the domain field is
-            // Domain::APP.
             Domain::APP | Domain::SELINUX => {
                 let mut access_key = key.clone();
                 if access_key.domain == Domain::APP {
@@ -2531,8 +2256,6 @@ impl KeystoreDB {
                 })
             }
 
-            // Domain::GRANT. In this case we load the key_id and the access_vector
-            // from the grant table.
             Domain::GRANT => {
                 let mut stmt = tx
                     .prepare(
@@ -2561,8 +2284,6 @@ impl KeystoreDB {
                 })
             }
 
-            // Domain::KEY_ID. In this case we load the domain and namespace from the
-            // keyentry database because we need them for access control.
             Domain::KEY_ID => {
                 let (domain, namespace): (Domain, i64) = {
                     let mut stmt = tx
@@ -2587,12 +2308,6 @@ impl KeystoreDB {
                     .context("Domain::KEY_ID.")?
                 };
 
-                // We may use a key by id after loading it by grant.
-                // In this case we have to check if the caller has a grant for this particular
-                // key. We can skip this if we already know that the caller is the owner.
-                // But we cannot know this if domain is anything but App. E.g. in the case
-                // of Domain::SELINUX we have to speculatively check for grants because we have to
-                // consult the SEPolicy before we know if the caller is the owner.
                 let access_vector: Option<KeyPermSet> =
                     if domain != Domain::APP || namespace != caller_uid.0 {
                         let access_vector: Option<i32> = tx
@@ -2714,10 +2429,6 @@ impl KeystoreDB {
         Ok(parameters)
     }
 
-    /// Decrements the usage count of a limited use key. This function first checks whether the
-    /// usage has been exhausted, if not, decreases the usage count. If the usage count reaches
-    /// zero, the key also gets marked unreferenced and scheduled for deletion.
-    /// Returns Ok(true) if the key was marked unreferenced as a hint to the garbage collector.
     pub fn check_and_update_key_usage_count(&mut self, key_id: i64) -> Result<()> {
         let _wp = wd::watch("KeystoreDB::check_and_update_key_usage_count");
 
@@ -2754,11 +2465,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// Load a key entry by the given key descriptor.
-    /// It uses the `check_permission` callback to verify if the access is allowed
-    /// given the key access tuple read from the database using `load_access_tuple`.
-    /// With `load_bits` the caller may specify which blobs shall be loaded from
-    /// the blob database.
     pub fn load_key_entry(
         &mut self,
         key: &KeyDescriptor,
@@ -2798,9 +2504,6 @@ impl KeystoreDB {
         caller_uid: AppUid,
         check_permission: &impl Fn(&KeyDescriptor, Option<KeyPermSet>) -> Result<()>,
     ) -> Result<(KeyIdGuard, KeyEntry)> {
-        // KEY ID LOCK 1/2
-        // If we got a key descriptor with a key id we can get the lock right away.
-        // Otherwise we have to defer it until we know the key id.
         let key_id_guard = match key.domain {
             Domain::KEY_ID => Some(KEY_ID_LOCK.get(key.nspace)),
             _ => None,
@@ -2811,35 +2514,18 @@ impl KeystoreDB {
             .unchecked_transaction()
             .context(ks_err!("Failed to initialize transaction."))?;
 
-        // Load the key_id and complete the access control tuple.
         let access = Self::load_access_tuple(&tx, key, key_type, caller_uid).context(ks_err!())?;
 
-        // Perform access control. It is vital that we return here if the permission is denied.
-        // So do not touch that '?' at the end.
         check_permission(&access.descriptor, access.vector).context(ks_err!())?;
 
-        // KEY ID LOCK 2/2
-        // If we did not get a key id lock by now, it was because we got a key descriptor
-        // without a key id. At this point we got the key id, so we can try and get a lock.
-        // However, we cannot block here, because we are in the middle of the transaction.
-        // So first we try to get the lock non blocking. If that fails, we roll back the
-        // transaction and block until we get the lock. After we successfully got the lock,
-        // we start a new transaction and load the access tuple again.
-        //
-        // We don't need to perform access control again, because we already established
-        // that the caller had access to the given key. But we need to make sure that the
-        // key id still exists. So we have to load the key entry by key id this time.
         let (key_id_guard, tx) = match key_id_guard {
             None => match KEY_ID_LOCK.try_get(access.key_id) {
                 None => {
-                    // Roll back the transaction.
                     tx.rollback()
                         .context(ks_err!("Failed to roll back transaction."))?;
 
-                    // Block until we have a key id lock.
                     let key_id_guard = KEY_ID_LOCK.get(access.key_id);
 
-                    // Create a new transaction.
                     let tx = self
                         .conn
                         .unchecked_transaction()
@@ -2847,8 +2533,6 @@ impl KeystoreDB {
 
                     Self::load_access_tuple(
                         &tx,
-                        // This time we have to load the key by the retrieved key id, because the
-                        // alias may have been rebound after we rolled back the transaction.
                         &KeyDescriptor {
                             domain: Domain::KEY_ID,
                             nspace: access.key_id,
@@ -2874,10 +2558,6 @@ impl KeystoreDB {
         Ok((key_id_guard, key_entry))
     }
 
-    /// Remove database table rows associated with the given `key_id`. The one exception
-    /// is that `blobentry` rows are not immediately deleted, but are instead marked as
-    /// orphaned so they can be removed in a later GC operation (which also involves
-    /// notifying the owning KeyMint of keyblob deletion).
     fn remove_key_rows(tx: &Transaction, key_id: i64) -> Result<bool> {
         let updated = tx
             .execute(
@@ -2900,12 +2580,7 @@ impl KeystoreDB {
             params![key_id],
         )
         .context("Trying to delete grants to other apps.")?;
-        // The associated blobentry rows are not immediately deleted when the owning keyentry is
-        // removed, because a KeyMint `deleteKey()` invocation is needed (specifically for the
-        // `KEY_BLOB`).  That should not be done from within the database transaction.  Also, calls
-        // to `deleteKey()` need to be delayed until the boot has completed, to avoid making
-        // permanent changes during an OTA before the point of no return.  Mark the affected rows
-        // with `state=Orphaned` so a subsequent garbage collection can do the `deleteKey()`.
+
         tx.execute(
             "UPDATE persistent.blobentry SET state = ? WHERE keyentryid = ?",
             params![BlobState::Orphaned, key_id],
@@ -2926,8 +2601,6 @@ impl KeystoreDB {
         Ok(updated != 0)
     }
 
-    /// Marks the given key as unreferenced and removes all of the grants to this key.
-    /// Returns Ok(true) if a key was marked unreferenced as a hint for the garbage collector.
     pub fn unbind_key(
         &mut self,
         key: &KeyDescriptor,
@@ -2941,8 +2614,6 @@ impl KeystoreDB {
             let access = Self::load_access_tuple(tx, key, key_type, caller_uid)
                 .context("Trying to get access tuple.")?;
 
-            // Perform access control. It is vital that we return here if the permission is denied.
-            // So do not touch that '?' at the end.
             check_permission(&access.descriptor, access.vector)
                 .context("While checking permission.")?;
 
@@ -2962,8 +2633,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// Delete all artifacts belonging to the namespace given by the domain-namespace tuple.
-    /// This leaves all of the blob entries orphaned for subsequent garbage collection.
     pub fn unbind_keys_for_namespace(&mut self, domain: Domain, namespace: i64) -> Result<()> {
         let _wp = wd::watch("KeystoreDB::unbind_keys_for_namespace");
 
@@ -3002,8 +2671,6 @@ impl KeystoreDB {
                 domain.0, namespace
             ))?;
             if domain == Domain::APP {
-                // Keystore uses the UID instead of the namespace argument for Domain::APP, so we
-                // just need to delete rows where grantee == namespace.
                 tx.execute(
                     "DELETE FROM persistent.grant WHERE grantee = ?;",
                     params![namespace],
@@ -3055,9 +2722,6 @@ impl KeystoreDB {
             )
             .context("Trying to delete grants.")?;
 
-            // Mark as orphaned any blobentry rows that are associated with keyentry rows that
-            // are about to be deleted.  The orphaned rows will be removed in a later GC
-            // operation (which also involves notifying the owning KeyMint of keyblob deletion).
             tx.execute(
                 "UPDATE persistent.blobentry SET state=?
                     WHERE keyentryid IN (
@@ -3079,7 +2743,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// Deletes all keys for the given user, including both client keys and super keys.
     pub fn unbind_keys_for_user(&mut self, user: AndroidUserId) -> Result<()> {
         let _wp = wd::watch("KeystoreDB::unbind_keys_for_user");
 
@@ -3109,12 +2772,10 @@ impl KeystoreDB {
 
             let mut rows = stmt
                 .query(params![
-                    // WHERE client key:
                     KeyType::Client,
                     Domain::APP.0 as u32,
                     user.0,
                     KeyLifeCycle::Live,
-                    // OR super key:
                     KeyType::Super,
                     user.0,
                     KeyLifeCycle::Live
@@ -3142,15 +2803,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// Deletes all auth-bound keys, i.e. keys that require user authentication, for the given user.
-    /// This runs when the user's lock screen is being changed to Swipe or None.
-    ///
-    /// This intentionally does *not* delete keys that require that the device be unlocked, unless
-    /// such keys also require user authentication.  Keystore's concept of user authentication is
-    /// fairly strong, and it requires that keys that require authentication be deleted as soon as
-    /// authentication is no longer possible.  In contrast, keys that just require that the device
-    /// be unlocked should remain usable when the lock screen is set to Swipe or None, as the device
-    /// is always considered "unlocked" in that case.
     pub fn unbind_auth_bound_keys_for_user(&mut self, user: AndroidUserId) -> Result<()> {
         let _wp = wd::watch("KeystoreDB::unbind_auth_bound_keys_for_user");
 
@@ -3190,10 +2842,6 @@ impl KeystoreDB {
             let mut notify_gc = false;
             let mut num_unbound = 0;
             for key_id in key_ids {
-                // Load the key parameters and filter out non-auth-bound keys.  To identify
-                // auth-bound keys, use the presence of UserSecureID.  The absence of NoAuthRequired
-                // could also be used, but UserSecureID is what Keystore treats as authoritative
-                // when actually enforcing the key parameters (it might not matter, though).
                 let params = Self::load_key_parameters(key_id, tx)
                     .context("Failed to load key parameters.")?;
                 let is_auth_bound_key = params.iter().any(|kp| {
@@ -3212,9 +2860,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// Deletes auth-bound client keys, super-encrypted client keys, and super keys for the user.
-    /// This is the legacy password-removal scope; user removal must still use
-    /// `unbind_keys_for_user`.
     pub fn unbind_lskf_bound_keys_for_user(&mut self, user: AndroidUserId) -> Result<()> {
         let _wp = wd::watch("KeystoreDB::unbind_lskf_bound_keys_for_user");
 
@@ -3327,14 +2972,6 @@ impl KeystoreDB {
         })
     }
 
-    /// Returns a list of KeyDescriptors in the selected domain/namespace whose
-    /// aliases are greater than the specified 'start_past_alias'. If no value
-    /// is provided, returns all KeyDescriptors.
-    /// The key descriptors will have the domain, nspace, and alias field set.
-    /// The returned list will be sorted by alias.
-    /// Domain must be APP or SELINUX, the caller must make sure of that.
-    /// Number of returned values is limited to 10,000 (which is empirically roughly
-    /// what will fit in a Binder message).
     pub fn list_past_alias(
         &mut self,
         domain: Domain,
@@ -3399,8 +3036,6 @@ impl KeystoreDB {
         })
     }
 
-    /// Returns a number of KeyDescriptors in the selected domain/namespace.
-    /// Domain must be APP or SELINUX, the caller must make sure of that.
     pub fn count_keys(
         &mut self,
         domain: Domain,
@@ -3429,12 +3064,6 @@ impl KeystoreDB {
         usize::try_from(num_keys).context(ks_err!("key count out of range"))
     }
 
-    /// Adds a grant to the grant table.
-    /// Like `load_key_entry` this function loads the access tuple before
-    /// it uses the callback for a permission check. Upon success,
-    /// it inserts the `grantee_uid`, `key_id`, and `access_vector` into the
-    /// grant table. The new row will have a randomized id, which is used as
-    /// grant id in the namespace field of the resulting KeyDescriptor.
     pub fn grant(
         &mut self,
         key: &KeyDescriptor,
@@ -3446,23 +3075,9 @@ impl KeystoreDB {
         let _wp = wd::watch("KeystoreDB::grant");
 
         self.with_transaction(Immediate("TX_grant"), |tx| {
-            // Load the key_id and complete the access control tuple.
-            // We ignore the access vector here because grants cannot be granted.
-            // The access vector returned here expresses the permissions the
-            // grantee has if key.domain == Domain::GRANT. But this vector
-            // cannot include the grant permission by design, so there is no way the
-            // subsequent permission check can pass.
-            // We could check key.domain == Domain::GRANT and fail early.
-            // But even if we load the access tuple by grant here, the permission
-            // check denies the attempt to create a grant by grant descriptor.
             let access =
                 Self::load_access_tuple(tx, key, KeyType::Client, caller_uid).context(ks_err!())?;
 
-            // Perform access control. It is vital that we return here if the permission
-            // was denied. So do not touch that '?' at the end of the line.
-            // This permission check checks if the caller has the grant permission
-            // for the given key and in addition to all of the permissions
-            // expressed in `access_vector`.
             check_permission(&access.descriptor, &access_vector)
                 .context(ks_err!("check_permission failed"))?;
 
@@ -3505,8 +3120,6 @@ impl KeystoreDB {
         })
     }
 
-    /// This function checks permissions like `grant` and `load_key_entry`
-    /// before removing a grant from the grant table.
     pub fn ungrant(
         &mut self,
         key: &KeyDescriptor,
@@ -3517,13 +3130,9 @@ impl KeystoreDB {
         let _wp = wd::watch("KeystoreDB::ungrant");
 
         self.with_transaction(Immediate("TX_ungrant"), |tx| {
-            // Load the key_id and complete the access control tuple.
-            // We ignore the access vector here because grants cannot be granted.
             let access =
                 Self::load_access_tuple(tx, key, KeyType::Client, caller_uid).context(ks_err!())?;
 
-            // Perform access control. We must return here if the permission
-            // was denied. So do not touch the '?' at the end of this line.
             check_permission(&access.descriptor).context(ks_err!("check_permission failed."))?;
 
             tx.execute(
@@ -3537,17 +3146,13 @@ impl KeystoreDB {
         })
     }
 
-    // Generates a random id and passes it to the given function, which will
-    // try to insert it into a database.  If that insertion fails, retry;
-    // otherwise return the id.
     fn insert_with_retry(inserter: impl Fn(i64) -> rusqlite::Result<usize>) -> Result<i64> {
         loop {
             let newid: i64 = match random() {
-                Self::UNASSIGNED_KEY_ID => continue, // UNASSIGNED_KEY_ID cannot be assigned.
+                Self::UNASSIGNED_KEY_ID => continue,
                 i => i,
             };
             match inserter(newid) {
-                // If the id already existed, try again.
                 Err(rusqlite::Error::SqliteFailure(
                     libsqlite3_sys::Error {
                         code: libsqlite3_sys::ErrorCode::ConstraintViolation,
@@ -3563,13 +3168,11 @@ impl KeystoreDB {
         }
     }
 
-    /// Insert or replace the auth token based on (user_id, auth_id, auth_type)
     pub fn insert_auth_token(&mut self, auth_token: &HardwareAuthToken) {
         self.perboot
             .insert_auth_token_entry(AuthTokenEntry::new(auth_token.clone(), BootTime::now()))
     }
 
-    /// Find the newest auth token matching the given predicate.
     pub fn find_auth_token_entry<F>(&self, p: F) -> Option<AuthTokenEntry>
     where
         F: Fn(&AuthTokenEntry) -> bool,
@@ -3577,7 +3180,6 @@ impl KeystoreDB {
         self.perboot.find_auth_token_entry(p)
     }
 
-    /// Load descriptor of a key by key id
     pub fn load_key_descriptor(&mut self, key_id: i64) -> Result<Option<KeyDescriptor>> {
         let _wp = wd::watch("KeystoreDB::load_key_descriptor");
 
@@ -3601,10 +3203,6 @@ impl KeystoreDB {
         .context(ks_err!())
     }
 
-    /// Returns a list of app UIDs that have keys authenticated by the given secure_user_id
-    /// (for the given user_id).
-    /// This is helpful for finding out which apps will have their keys invalidated when
-    /// the user changes biometrics enrollment or removes their LSKF.
     pub fn get_app_uids_affected_by_sid(
         &mut self,
         user: AndroidUserId,
@@ -3648,15 +3246,11 @@ impl KeystoreDB {
         })?;
         let mut app_uids_affected_by_sid: HashSet<AppUid> = Default::default();
         for (key_id, app_uid) in ids {
-            // Read the key parameters for each key in its own transaction. It is OK to ignore
-            // an error to get the properties of a particular key since it might have been deleted
-            // under our feet after the previous transaction concluded. If the key was deleted
-            // then it is no longer applicable if it was auth-bound or not.
             if let Ok(is_key_bound_to_sid) =
                 self.with_transaction(Immediate("TX_get_app_uids_affects_by_sid 2"), |tx| {
                     let params = Self::load_key_parameters(key_id, tx)
                         .context("Failed to load key parameters.")?;
-                    // Check if the key is bound to this secure user ID.
+
                     let is_key_bound_to_sid = params.iter().any(|kp| {
                         matches!(
                             kp.key_parameter_value(),
@@ -3676,7 +3270,6 @@ impl KeystoreDB {
         Ok(app_uids_vec)
     }
 
-    /// Retrieve a database PRAGMA config value.
     pub fn pragma<T: FromSql>(&mut self, name: &str) -> Result<T> {
         self.conn
             .query_row(&format!("PRAGMA persistent.{name}"), (), |row| row.get(0))

@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This module implements IKeystoreAuthorization AIDL interface.
-
 use crate::android::hardware::security::keymint::{
     HardwareAuthToken::HardwareAuthToken, HardwareAuthenticatorType::HardwareAuthenticatorType,
     IKeyMintDevice::IKeyMintDevice, KeyParameter::KeyParameter, KeyPurpose::KeyPurpose,
@@ -57,47 +55,27 @@ use rsbinder::{
 };
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
-/// This is the Authorization error type, it wraps binder exceptions and the
-/// Authorization ResponseCode
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
-    /// Wraps an IKeystoreAuthorization response code as defined by
-    /// android.security.authorization AIDL interface specification.
     #[error("Error::Rc({0:?})")]
     Rc(ResponseCode),
-    /// Wraps a Binder exception code other than a service specific exception.
+
     #[error("Binder exception code {0:?}, {1:?}")]
     Binder(ExceptionCode, i32),
 }
 
 const AUTH_TOKEN_MAC_LEN: usize = 32;
 
-/// Translate an error into a service specific exception, logging along the way.
-///
-/// `Error::Rc(x)` variants get mapped onto a service specific error code of `x`.
-/// Certain response codes may be returned from keystore/ResponseCode.aidl by the keystore2 modules,
-/// which are then converted to the corresponding response codes of android.security.authorization
-/// AIDL interface specification.
-///
-/// `selinux::Error::perm()` is mapped on `ResponseCode::PERMISSION_DENIED`.
-///
-/// All non `Error` error conditions get mapped onto ResponseCode::SYSTEM_ERROR`.
 pub fn into_logged_binder(e: anyhow::Error) -> BinderStatus {
     log_client_err!(e);
     let root_cause = e.root_cause();
     if let Some(KeystoreError::Rc(ks_rcode)) = root_cause.downcast_ref::<KeystoreError>() {
         let rc = match *ks_rcode {
-            // Although currently keystore2/ResponseCode.aidl and
-            // authorization/ResponseCode.aidl share the same integer values for the
-            // common response codes, this may deviate in the future, hence the
-            // conversion here.
             KsResponseCode::SYSTEM_ERROR => ResponseCode::SYSTEM_ERROR.0,
             KsResponseCode::KEY_NOT_FOUND => ResponseCode::KEY_NOT_FOUND.0,
             KsResponseCode::VALUE_CORRUPTED => ResponseCode::VALUE_CORRUPTED.0,
             KsResponseCode::INVALID_ARGUMENT => ResponseCode::INVALID_ARGUMENT.0,
-            // If the code paths of IKeystoreAuthorization aidl's methods happen to return
-            // other error codes from KsResponseCode in the future, they should be converted
-            // as well.
+
             _ => ResponseCode::SYSTEM_ERROR.0,
         };
         BinderStatus::new_service_specific_error(rc, anyhow_error_to_cstring(&e))
@@ -114,52 +92,41 @@ pub fn into_logged_binder(e: anyhow::Error) -> BinderStatus {
     }
 }
 
-/// This struct is defined to implement the `IKeystoreAuthorization` AIDL interface.
 pub enum AuthorizationManager {
-    /// Device lock notifications are handled synchronously.
     Synchronous,
-    /// Device lock notifications are handled asynchronously by a separate thread, started on
-    /// demand.
+
     Asynchronous(Arc<AsyncTask>),
 }
 
-/// Implementation of the parts of `IKeystoreAuthorization` that track device lock status.
 pub struct DeviceLockState;
 
-/// Pending notifications about the lock state of the device for a user.
 #[derive(Debug)]
 pub struct LockStateNotification {
-    /// Android user that the notification pertains to.
     pub user: AndroidUserId,
-    /// Lock state
+
     pub state: LockState,
 }
 
-/// Lock state for a user.
 #[derive(Debug)]
 pub enum LockState {
-    /// Device has been unlocked.
     DeviceUnlocked {
-        /// Secret derived from synthetic password, if available.
         password: Option<ZVec>,
     },
-    /// Device has been locked.
+
     DeviceLocked {
-        /// SIDs of class 3 biometrics that can unlock the device for the user.
         unlocking_sids: Vec<SecureUserId>,
-        /// Whether a weak unlock method can unlock the device for the user.
+
         weak_unlock_enabled: bool,
     },
-    /// User's CE storage has been locked.
+
     UserStorageLocked,
-    /// Weak unlock methods have expired.
+
     WeakUnlockMethodsExpired,
-    /// Non-LSKF unlock methods have expired.
+
     NonLskfUnlockMethodsExpired,
 }
 
 impl DeviceLockState {
-    /// Update the lock state based on the given notification.
     fn update(op: LockStateNotification) {
         match op.state {
             LockState::DeviceUnlocked { password } => {
@@ -224,7 +191,6 @@ impl DeviceLockState {
         log::info!("on_user_storage_locked({user:?})");
         let _wp = wd::watch("DeviceLockState::on_user_storage_locked");
 
-        // Delete super key in cache, if exists.
         SUPER_KEY.write().unwrap().forget_all_keys_for_user(user);
     }
 
@@ -250,8 +216,6 @@ impl DeviceLockState {
 impl AuthorizationManager {
     fn new_manager() -> Self {
         if crate::keymaster::flags::async_lock_state() {
-            // Use an `AsyncTask` to handle notifications of authorization state, so Binder
-            // invocations can complete swiftly.
             let lock_state_task = Arc::new(AsyncTask::new(std::time::Duration::from_secs(5)));
             ENFORCEMENTS.install_lock_state_task(lock_state_task.clone());
 
@@ -261,7 +225,6 @@ impl AuthorizationManager {
         }
     }
 
-    /// Create a new instance of Keystore Authorization service.
     pub fn new_native_binder() -> Result<Strong<dyn IKeystoreAuthorization>> {
         let mgr = Self::new_manager();
         Ok(BnKeystoreAuthorization::new_binder_with_features(
@@ -278,21 +241,16 @@ impl AuthorizationManager {
         ))
     }
 
-    /// Act on a lock state notification.
     fn update_lock_state(&self, op: LockStateNotification) {
         match self {
             Self::Asynchronous(async_task) => {
-                // Send the notification to the async task to be acted on there.
                 info!("add {op:?} to notification queue");
                 async_task.queue_hi(|_shelf| {
                     info!("process {op:?} from notification queue");
                     DeviceLockState::update(op)
                 });
             }
-            Self::Synchronous => {
-                // Act on the notification operation immediately.
-                DeviceLockState::update(op)
-            }
+            Self::Synchronous => DeviceLockState::update(op),
         }
     }
 
@@ -319,10 +277,6 @@ impl AuthorizationManager {
             }
         }
 
-        // Android keystore2 accepts HAT contents at the addAuthToken ingestion boundary. Mirrored
-        // calls only arrive after System returned success, so preserve that result and attempt to
-        // localize the token without applying KOBING-only shape or MAC checks. Direct service calls
-        // retain the stricter KOBING boundary checks.
         validate_auth_token_shape_for_source(ctx, auth_token)?;
         if should_skip_system_auth_token_verification(ctx) {
             log::debug!(
@@ -349,12 +303,11 @@ impl AuthorizationManager {
         sid: SecureUserId,
         auth_token_max_age_millis: i64,
     ) -> Result<AuthorizationTokens> {
-        // If the challenge is zero, return error
         if challenge.0 == 0 {
             return Err(Error::Rc(ResponseCode::INVALID_ARGUMENT))
                 .context(ks_err!("Challenge can not be zero."));
         }
-        // Obtain the auth token and the timestamp token from the enforcement module.
+
         let (auth_token, ts_token) =
             ENFORCEMENTS.get_auth_tokens(challenge, sid, auth_token_max_age_millis)?;
         Ok(AuthorizationTokens {
@@ -745,8 +698,6 @@ fn challenge_tag(challenge: i64) -> u16 {
     (challenge as u64 & 0xffff) as u16
 }
 
-// The AIDL interface necessarily uses raw integer types for user ID / sid, so convert them to
-// internal newtypes as soon as they arrive.
 impl IKeystoreAuthorization for AuthorizationManager {
     fn addAuthToken(&self, auth_token: &HardwareAuthToken) -> BinderResult<()> {
         let _wp = wd::watch("IKeystoreAuthorization::addAuthToken");

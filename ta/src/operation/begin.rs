@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! TA functionality for beginning a crypto operation.
-
 use super::{AuthInfo, CryptoOperation, Operation, CONFIRMATION_DATA_PREFIX};
 use kmr_common::{
     contains_tag_value,
@@ -46,14 +44,12 @@ impl crate::KeyMintTa {
     ) -> Result<InternalBeginResult, Error> {
         let op_idx = self.new_operation_index()?;
 
-        // Parse and decrypt the keyblob, which requires extra hidden params.
         let (keyblob, sdd_slot) = self.keyblob_parse_decrypt(key_blob, &params)?;
         let keyblob::PlaintextKeyBlob {
             characteristics,
             key_material,
         } = keyblob;
 
-        // Validate parameters.
         let key_chars = characteristics_at(&characteristics, self.hw_info.security_level)?;
         check_begin_params(key_chars, purpose, &params)?;
         self.check_begin_auths(key_chars, key_blob)?;
@@ -61,8 +57,6 @@ impl crate::KeyMintTa {
         let trusted_conf_data = if purpose == KeyPurpose::Sign
             && get_bool_tag_value!(key_chars, TrustedConfirmationRequired)?
         {
-            // Trusted confirmation is required; accumulate the signed data in an extra buffer,
-            // starting with a prefix.
             Some(try_to_vec(CONFIRMATION_DATA_PREFIX)?)
         } else {
             None
@@ -75,7 +69,6 @@ impl crate::KeyMintTa {
             None
         };
 
-        // At most one operation involving proof of user presence can be in-flight at a time.
         let presence_required = get_bool_tag_value!(key_chars, TrustedUserPresenceRequired)?;
         if presence_required && self.presence_required_op.is_some() {
             return Err(km_err!(
@@ -86,8 +79,6 @@ impl crate::KeyMintTa {
 
         let mut op_auth_info = AuthInfo::new(key_chars)?;
         if let Some(auth_info) = &op_auth_info {
-            // Authentication checks are required on begin() if there's a timeout that
-            // we can check.
             if let Some(timeout_secs) = auth_info.timeout_secs {
                 if let Some(clock) = &self.imp.clock {
                     let now: Timestamp = clock.now().into();
@@ -102,7 +93,6 @@ impl crate::KeyMintTa {
                         None,
                     )?;
 
-                    // Auth already checked, nothing needed on subsequent calls
                     op_auth_info = None;
                 } else if let Some(auth_token) = auth_token {
                     self.check_auth_token(auth_token, auth_info, None, None, None)?;
@@ -110,9 +100,6 @@ impl crate::KeyMintTa {
             }
         }
 
-        // Re-use the same random value for both:
-        // - op_handle: the way to identify which operation is involved
-        // - challenge: the value used as part of the input for authentication tokens
         let op_handle = self.new_op_handle();
         let challenge = op_handle.0;
         let mut ret_params = Vec::new();
@@ -131,7 +118,6 @@ impl crate::KeyMintTa {
                     }
                 };
                 if caller_nonce.is_none() {
-                    // Need to return any randomly-generated nonce to the caller.
                     match &mode {
                         aes::Mode::Cipher(aes::CipherMode::EcbNoPadding)
                         | aes::Mode::Cipher(aes::CipherMode::EcbPkcs7Padding) => {}
@@ -188,7 +174,6 @@ impl crate::KeyMintTa {
                     }
                 };
                 if caller_nonce.is_none() {
-                    // Need to return any randomly-generated nonce to the caller.
                     match &mode {
                         des::Mode::EcbNoPadding | des::Mode::EcbPkcs7Padding => {}
                         des::Mode::CbcNoPadding { nonce: n }
@@ -226,7 +211,6 @@ impl crate::KeyMintTa {
                             CryptoOperation::HmacSign(self.imp.hmac.begin(key, digest)?, tag_len)
                         }
                         KeyPurpose::Verify => {
-                            // Remember the acceptable tag lengths.
                             let min_tag_len = get_tag_value!(
                                 key_chars,
                                 MinMacLength,
@@ -323,7 +307,6 @@ impl crate::KeyMintTa {
         })
     }
 
-    /// Check TA-specific key authorizations on `begin()`.
     fn check_begin_auths(&mut self, key_chars: &[KeyParam], key_blob: &[u8]) -> Result<(), Error> {
         if self.dev.bootloader.done() && get_bool_tag_value!(key_chars, BootloaderOnly)? {
             return Err(km_err!(
@@ -339,7 +322,6 @@ impl crate::KeyMintTa {
         }
 
         if let Some(max_uses) = get_opt_tag_value!(key_chars, MaxUsesPerBoot)? {
-            // Track the use count for this key.
             let key_id = self.key_id(key_blob)?;
             self.update_use_count(key_id, *max_uses)?;
         }
@@ -347,7 +329,6 @@ impl crate::KeyMintTa {
     }
 }
 
-/// Return an error if any of the `exclude` tags are found in `params`.
 fn reject_tags(params: &[KeyParam], exclude: &[Tag]) -> Result<(), Error> {
     for param in params {
         if exclude.contains(&param.tag()) {
@@ -357,7 +338,6 @@ fn reject_tags(params: &[KeyParam], exclude: &[Tag]) -> Result<(), Error> {
     Ok(())
 }
 
-/// Return an error if non-None padding found.
 fn reject_some_padding(params: &[KeyParam]) -> Result<(), Error> {
     if let Some(padding) = get_opt_tag_value!(params, Padding)? {
         if *padding != PaddingMode::None {
@@ -367,7 +347,6 @@ fn reject_some_padding(params: &[KeyParam]) -> Result<(), Error> {
     Ok(())
 }
 
-/// Return an error if non-None digest found.
 fn reject_some_digest(params: &[KeyParam]) -> Result<(), Error> {
     if let Some(digest) = get_opt_tag_value!(params, Digest)? {
         if *digest != Digest::None {
@@ -377,7 +356,6 @@ fn reject_some_digest(params: &[KeyParam]) -> Result<(), Error> {
     Ok(())
 }
 
-/// Indication of which parameters on a `begin` need to be checked against key authorizations.
 struct BeginParamsToCheck {
     block_mode: bool,
     padding: bool,
@@ -385,14 +363,11 @@ struct BeginParamsToCheck {
     mgf_digest: bool,
 }
 
-/// Check that an operation with the given `purpose` and `params` can validly be started
-/// using a key with characteristics `chars`.
 fn check_begin_params(
     chars: &[KeyParam],
     purpose: KeyPurpose,
     params: &[KeyParam],
 ) -> Result<(), Error> {
-    // General checks for all algorithms.
     let algo = get_algorithm(chars)?;
     let valid_purpose = matches!(
         (algo, purpose),
@@ -431,7 +406,6 @@ fn check_begin_params(
     }
     let nonce = get_opt_tag_value!(params, Nonce)?;
     if get_bool_tag_value!(chars, CallerNonce)? {
-        // Caller-provided nonces are allowed.
     } else if nonce.is_some() && purpose == KeyPurpose::Encrypt {
         return Err(km_err!(
             CallerNonceProhibited,
@@ -439,7 +413,6 @@ fn check_begin_params(
         ));
     }
 
-    // Further algorithm-specific checks.
     let check = match algo {
         Algorithm::Rsa => check_begin_rsa_params(chars, purpose, params),
         Algorithm::Ec => check_begin_ec_params(chars, purpose, params),
@@ -449,9 +422,6 @@ fn check_begin_params(
         Algorithm::Hmac => check_begin_hmac_params(chars, purpose, params),
     }?;
 
-    // For various parameters, if they are specified in the begin parameters and they
-    // are relevant for the algorithm, then the same value must also exist in the key
-    // characteristics. Also, there can be only one distinct value in the parameters.
     if check.block_mode {
         if let Some(bmode) = get_opt_tag_value!(params, BlockMode, UnsupportedBlockMode)? {
             if !contains_tag_value!(chars, BlockMode, *bmode) {
@@ -495,9 +465,6 @@ fn check_begin_params(
             .iter()
             .any(|param| matches!(param, KeyParam::RsaOaepMgfDigest(_)));
         if chars_have_mgf_digest && mgf_digest_to_find.is_none() {
-            // The key characteristics include an explicit set of MGF digests, but the begin()
-            // operation is using the default SHA1.  Check that this default is in the
-            // characteristics.
             mgf_digest_to_find = Some(&Digest::Sha1);
         }
 
@@ -514,20 +481,16 @@ fn check_begin_params(
     Ok(())
 }
 
-/// Indicate whether a [`KeyPurpose`] is for encryption/decryption.
 fn for_encryption(purpose: KeyPurpose) -> bool {
     purpose == KeyPurpose::Encrypt
         || purpose == KeyPurpose::Decrypt
         || purpose == KeyPurpose::WrapKey
 }
 
-/// Indicate whether a [`KeyPurpose`] is for signing.
 fn for_signing(purpose: KeyPurpose) -> bool {
     purpose == KeyPurpose::Sign
 }
 
-/// Check that an RSA operation with the given `purpose` and `params` can validly be started
-/// using a key with characteristics `chars`.
 fn check_begin_rsa_params(
     chars: &[KeyParam],
     purpose: KeyPurpose,
@@ -606,7 +569,6 @@ fn check_begin_rsa_params(
     })
 }
 
-/// Determine the [`rsa::DecryptionMode`] from parameters.
 fn rsa_decryption_mode(params: &[KeyParam]) -> Result<rsa::DecryptionMode, Error> {
     let padding = get_padding_mode(params)?;
     match padding {
@@ -628,7 +590,6 @@ fn rsa_decryption_mode(params: &[KeyParam]) -> Result<rsa::DecryptionMode, Error
     }
 }
 
-/// Determine the [`rsa::SignMode`] from parameters.
 fn rsa_sign_mode(params: &[KeyParam]) -> Result<rsa::SignMode, Error> {
     let padding = get_padding_mode(params)?;
     match padding {
@@ -649,8 +610,6 @@ fn rsa_sign_mode(params: &[KeyParam]) -> Result<rsa::SignMode, Error> {
     }
 }
 
-/// Check that an EC operation with the given `purpose` and `params` can validly be started
-/// using a key with characteristics `chars`.
 fn check_begin_ec_params(
     chars: &[KeyParam],
     purpose: KeyPurpose,
@@ -681,7 +640,6 @@ fn check_begin_ec_params(
     })
 }
 
-/// Check that an ML-DSA operation with the given `purpose` and `params` can validly be started.
 fn check_begin_mldsa_params(
     purpose: KeyPurpose,
     params: &[KeyParam],
@@ -703,8 +661,6 @@ fn check_begin_mldsa_params(
     })
 }
 
-/// Check that an AES operation with the given `purpose` and `params` can validly be started
-/// using a key with characteristics `chars`.
 fn check_begin_aes_params(
     chars: &[KeyParam],
     params: &[KeyParam],
@@ -776,8 +732,6 @@ fn check_begin_aes_params(
     })
 }
 
-/// Determine the [`aes::Mode`], rejecting invalid parameters. Use `caller_nonce` if provided,
-/// otherwise generate a new nonce using the provided [`Rng`] instance.
 fn aes_mode(
     params: &[KeyParam],
     caller_nonce: Option<&[u8]>,
@@ -857,8 +811,6 @@ fn aes_mode(
     }
 }
 
-/// Check that a 3-DES operation with the given `purpose` and `params` can validly be started
-/// using a key with characteristics `chars`.
 fn check_begin_3des_params(
     params: &[KeyParam],
     caller_nonce: Option<&[u8]>,
@@ -900,8 +852,6 @@ fn check_begin_3des_params(
     })
 }
 
-/// Determine the [`des::Mode`], rejecting invalid parameters. Use `caller_nonce` if provided,
-/// otherwise generate a new nonce using the provided [`Rng`] instance.
 fn des_mode(
     params: &[KeyParam],
     caller_nonce: Option<&[u8]>,
@@ -938,8 +888,6 @@ fn des_mode(
     }
 }
 
-/// Check that an HMAC operation with the given `purpose` and `params` can validly be started
-/// using a key with characteristics `chars`.
 fn check_begin_hmac_params(
     chars: &[KeyParam],
     purpose: KeyPurpose,
@@ -972,7 +920,6 @@ fn check_begin_hmac_params(
     })
 }
 
-/// Extract or generate a nonce of the given size.
 fn nonce<const N: usize>(caller_nonce: Option<&[u8]>, rng: &mut dyn Rng) -> Result<[u8; N], Error> {
     Ok(match caller_nonce {
         Some(n) => n

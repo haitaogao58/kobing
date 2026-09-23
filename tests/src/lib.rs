@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Test methods to confirm basic functionality of trait implementations.
-
 use core::convert::TryInto;
 use kmr_common::crypto::{
     aes, des, hmac, Aes, AesCmac, Ckdf, ConstTimeEq, Des, Hkdf, Hmac, MonotonicClock, Rng, Sha256,
@@ -25,7 +23,6 @@ use kmr_wire::{keymint::Digest, rpc};
 use std::collections::HashMap;
 use x509_cert::der::{Decode, Encode};
 
-/// Test basic [`Rng`] functionality.
 pub fn test_rng<R: Rng>(rng: &mut R) {
     let u1 = rng.next_u64();
     let u2 = rng.next_u64();
@@ -43,7 +40,6 @@ pub fn test_rng<R: Rng>(rng: &mut R) {
     assert_ne!(b1, b2);
 }
 
-/// Test basic [`ConstTimeEq`] functionality. Does not test the key constant-time property though.
 pub fn test_eq<E: ConstTimeEq>(comparator: E) {
     let b0 = [];
     let b1 = [0u8, 1u8, 2u8];
@@ -68,7 +64,6 @@ pub fn test_eq<E: ConstTimeEq>(comparator: E) {
     assert!(comparator.ne(&b5, &b6));
 }
 
-/// Test basic [`MonotonicClock`] functionality.
 pub fn test_clock<C: MonotonicClock>(clock: C) {
     let t1 = clock.now();
     let t2 = clock.now();
@@ -78,7 +73,6 @@ pub fn test_clock<C: MonotonicClock>(clock: C) {
     assert!(t3.0 > (t1.0 + 200));
 }
 
-/// Test basic HKDF functionality.
 pub fn test_hkdf<H: Hmac>(hmac: H) {
     struct TestCase {
         ikm: &'static str,
@@ -89,7 +83,6 @@ pub fn test_hkdf<H: Hmac>(hmac: H) {
     }
 
     const HKDF_TESTS: &[TestCase] = &[
-        // RFC 5869 section A.1
         TestCase {
             ikm: "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
             salt: "000102030405060708090a0b0c",
@@ -101,7 +94,6 @@ pub fn test_hkdf<H: Hmac>(hmac: H) {
                 "34007208d5b887185865",
             ),
         },
-        // RFC 5869 section A.2
         TestCase {
             ikm: concat!(
                 "000102030405060708090a0b0c0d0e0f",
@@ -134,7 +126,6 @@ pub fn test_hkdf<H: Hmac>(hmac: H) {
                 "1d87",
             ),
         },
-        // RFC 5869 section A.3
         TestCase {
             ikm: "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
             salt: "",
@@ -162,7 +153,6 @@ pub fn test_hkdf<H: Hmac>(hmac: H) {
     }
 }
 
-/// Test basic [`Hmac`] functionality.
 pub fn test_hmac<H: Hmac>(hmac: H) {
     struct TestCase {
         digest: Digest,
@@ -187,7 +177,7 @@ pub fn test_hmac<H: Hmac>(hmac: H) {
             key:          b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f",
             expected_mac: "481e10d823ba64c15b94537a3de3f253c16642451ac45124dd4dde120bf1e5c15e55487d55ba72b43039f235226e7954cd5854b30abc4b5b53171a4177047c9b",
         },
-        // empty data
+
         TestCase {
             digest: Digest::Sha256,
             tag_size:     32,
@@ -196,7 +186,7 @@ pub fn test_hmac<H: Hmac>(hmac: H) {
             expected_mac: "07eff8b326b7798c9ccfcbdbe579489ac785a7995a04618b1a2813c26744777d",
         },
 
-        // Test cases from RFC 4231 Section 4.2
+
         TestCase {
             digest: Digest::Sha224,
             tag_size: 224/8,
@@ -240,7 +230,7 @@ pub fn test_hmac<H: Hmac>(hmac: H) {
                 "be9d914eeb61f1702e696c203a126854"
             ),
         },
-        // Test cases from RFC 4231 Section 4.3
+
         TestCase {
             digest: Digest::Sha224,
             tag_size: 224/8,
@@ -284,7 +274,7 @@ pub fn test_hmac<H: Hmac>(hmac: H) {
                 "caeab1a34d4a6b4b636e070a38bce737"
             ),
         },
-        // Test cases from RFC 4231 Section 4.4
+
         TestCase {
             digest: Digest::Sha224,
             tag_size: 224/8,
@@ -346,9 +336,7 @@ pub fn test_hmac<H: Hmac>(hmac: H) {
     }
 }
 
-/// Test basic [`AesCmac`] functionality.
 pub fn test_aes_cmac<M: AesCmac>(cmac: M) {
-    // Test vectors from RFC 4493.
     let key = hex::decode("2b7e151628aed2a6abf7158809cf4f3c").expect("Could not decode key");
     let key = aes::Key::new(key).unwrap();
     let data = hex::decode("6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710").expect("Could not decode data");
@@ -370,9 +358,7 @@ pub fn test_aes_cmac<M: AesCmac>(cmac: M) {
     }
 }
 
-/// Test `ckdf()` functionality based on an underlying [`AesCmac`] implementation.
 pub fn test_ckdf<T: Ckdf>(kdf: T) {
-    // Test data manually generated from Android C++ implementation.
     let key = aes::Key::new(vec![0; 32]).unwrap();
     let label = b"KeymasterSharedMac";
     let v0 = vec![0x00, 0x00, 0x00, 0x00];
@@ -392,7 +378,6 @@ pub fn test_ckdf<T: Ckdf>(kdf: T) {
     );
 }
 
-/// Test AES-GCM functionality.
 pub fn test_aes_gcm<A: Aes>(aes: A) {
     struct TestCase {
         key: &'static str,
@@ -402,7 +387,7 @@ pub fn test_aes_gcm<A: Aes>(aes: A) {
         ct: &'static str,
         tag: &'static str,
     }
-    // Test vectors from https://github.com/google/wycheproof/blob/master/testvectors/aes_gcm_test.json
+
     let tests = vec![
         TestCase {
             key: "5b9604fe14eadba931b0ccf34843dab9",
@@ -424,11 +409,11 @@ pub fn test_aes_gcm<A: Aes>(aes: A) {
     for test in tests {
         let key = hex::decode(test.key).unwrap();
         let iv = hex::decode(test.iv).unwrap();
-        assert_eq!(iv.len(), 12); // Only 96-bit nonces supported.
+        assert_eq!(iv.len(), 12);
         let aad = hex::decode(test.aad).unwrap();
         let msg = hex::decode(test.msg).unwrap();
         let tag = hex::decode(test.tag).unwrap();
-        assert_eq!(tag.len(), 16); // Test data includes full 128-bit tag
+        assert_eq!(tag.len(), 16);
 
         let aes_key = aes::Key::new(key.clone()).unwrap();
         let mut op = aes
@@ -460,7 +445,6 @@ pub fn test_aes_gcm<A: Aes>(aes: A) {
         got_pt.extend_from_slice(&op.finish().unwrap());
         assert_eq!(test.msg, hex::encode(&got_pt));
 
-        // Truncated tag should still decrypt.
         let aes_key = aes::Key::new(key.clone()).unwrap();
         let mut op = match aes.begin_aead(
             aes_key.into(),
@@ -477,7 +461,6 @@ pub fn test_aes_gcm<A: Aes>(aes: A) {
         got_pt.extend_from_slice(&op.finish().unwrap());
         assert_eq!(test.msg, hex::encode(&got_pt));
 
-        // Corrupted ciphertext should not decrypt.
         let aes_key = aes::Key::new(key).unwrap();
         let mut op = match aes.begin_aead(
             aes_key.into(),
@@ -498,7 +481,6 @@ pub fn test_aes_gcm<A: Aes>(aes: A) {
     }
 }
 
-/// Test basic triple-DES functionality.
 pub fn test_des<D: Des>(des: D) {
     struct TestCase {
         key: &'static str,
@@ -546,7 +528,6 @@ pub fn test_des<D: Des>(des: D) {
     }
 }
 
-/// Test basic SHA-256 functionality.
 pub fn test_sha256<S: Sha256>(sha256: S) {
     struct TestCase {
         msg: &'static [u8],
@@ -573,9 +554,6 @@ pub fn test_sha256<S: Sha256>(sha256: S) {
     }
 }
 
-/// Test secure deletion secret management.
-///
-/// Warning: this test will use slots in the provided manager, and may leak slots on failure.
 pub fn test_sdd_mgr<M: keyblob::SecureDeletionSecretManager, R: Rng>(mut sdd_mgr: M, mut rng: R) {
     let (slot1, sdd1) = sdd_mgr
         .new_secret(&mut rng, SlotPurpose::KeyGeneration)
@@ -583,7 +561,6 @@ pub fn test_sdd_mgr<M: keyblob::SecureDeletionSecretManager, R: Rng>(mut sdd_mgr
     assert!(sdd_mgr.get_secret(slot1).unwrap() == sdd1);
     assert!(sdd_mgr.get_secret(slot1).unwrap() == sdd1);
 
-    // A second instance should share factory reset secret but not per-key secret.
     let (slot2, sdd2) = sdd_mgr
         .new_secret(&mut rng, SlotPurpose::KeyGeneration)
         .unwrap();
@@ -598,7 +575,6 @@ pub fn test_sdd_mgr<M: keyblob::SecureDeletionSecretManager, R: Rng>(mut sdd_mgr
     assert!(sdd_mgr.delete_secret(slot2).is_ok());
 }
 
-/// Test that attestation certificates parse as X.509 structures.
 pub fn test_signing_cert_parse<T: kmr_ta::device::RetrieveCertSigningInfo>(
     certs: T,
     is_strongbox: bool,
@@ -616,8 +592,6 @@ pub fn test_signing_cert_parse<T: kmr_ta::device::RetrieveCertSigningInfo>(
                 .unwrap_or_else(|_| panic!("failed to retrieve chain for {info:?}"));
             let chain = chain.cert_chain;
 
-            // Check that the attestation chain looks basically valid (parses as DER,
-            // has subject/issuer match).
             let mut prev_subject_data = vec![];
             for (idx, cert) in chain.iter().rev().enumerate() {
                 let cert = x509_cert::Certificate::from_der(&cert.encoded_certificate)
@@ -626,14 +600,12 @@ pub fn test_signing_cert_parse<T: kmr_ta::device::RetrieveCertSigningInfo>(
                 let subject_data = cert.tbs_certificate().subject().to_der().unwrap();
                 let issuer_data = cert.tbs_certificate().issuer().to_der().unwrap();
                 if idx == 0 {
-                    // First cert should be self-signed, and so have subject==issuer.
                     assert_eq!(
                         hex::encode(&subject_data),
                         hex::encode(&issuer_data),
                         "root cert has subject != issuer for {info:?}"
                     );
                 } else {
-                    // Issuer of cert should be the subject of the previous cert.
                     assert_eq!(
                         hex::encode(&prev_subject_data),
                         hex::encode(&issuer_data),
@@ -646,7 +618,6 @@ pub fn test_signing_cert_parse<T: kmr_ta::device::RetrieveCertSigningInfo>(
     }
 }
 
-/// Simple smoke test for an `RetrieveRpcArtifacts` trait implementation.
 pub fn test_retrieve_rpc_artifacts<T: kmr_ta::device::RetrieveRpcArtifacts>(
     rpc: T,
     hmac: &dyn Hmac,

@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Implements get_attestation_key_info which loads user generated attestation keys.
-
 use crate::android::hardware::security::keymint::KeyParameter::KeyParameter;
 use crate::android::system::keystore2::{
     Domain::Domain, KeyDescriptor::KeyDescriptor, ResponseCode::ResponseCode,
@@ -27,7 +25,6 @@ use crate::keymaster::utils::AppUid;
 use crate::top::kobing::ko_bing::CallerInfo::CallerInfo;
 use anyhow::{Context, Result};
 
-/// KeyMint user generated attestation key information.
 pub enum AttestationKeyInfo {
     UserGenerated {
         key_id_guard: KeyIdGuard,
@@ -37,7 +34,6 @@ pub enum AttestationKeyInfo {
     },
 }
 
-/// Loads the user generated attestation key from the database if `attest_key_descriptor` is given.
 pub fn get_attest_key_info(
     ctx: Option<&CallerInfo>,
     caller_uid: AppUid,

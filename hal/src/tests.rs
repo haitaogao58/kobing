@@ -36,7 +36,10 @@ struct TestChannel {
 
 impl TestChannel {
     fn new(rsp: &str) -> Self {
-        Self { req: Arc::new(Mutex::new(vec![])), rsp: hex::decode(rsp).unwrap() }
+        Self {
+            req: Arc::new(Mutex::new(vec![])),
+            rsp: hex::decode(rsp).unwrap(),
+        }
     }
     fn req_data(&self) -> Vec<u8> {
         self.req.lock().unwrap().clone()
@@ -54,28 +57,13 @@ impl SerializedChannel for TestChannel {
 #[test]
 fn test_method_roundtrip() {
     let channel = TestChannel::new(concat!(
-        "82", // 2-arr (PerformOpResponse)
-        "00", // int   (PerformOpResponse.error_code == ErrorCode::Ok)
-        "81", // 1-arr (PerformOpResponse.rsp)
-        "82", // 2-arr (PerformOpResponse.rsp.0 : PerformOpRsp)
-        "13", // 0x13 = KeyMintOperation::DEVICE_GENERATE_KEY
-        "81", // 1-arr (GenerateKeyResponse)
-        "83", // 3-arr (ret: KeyCreationResult)
-        "41", "01", // 1-bstr (KeyCreationResult.keyBlob)
-        "80", // 0-arr (KeyCreationResult.keyCharacteristics)
-        "80", // 0-arr (KeyCreationResult.certificateChain)
+        "82", "00", "81", "82", "13", "81", "83", "41", "01", "80", "80",
     ));
     let imp = keymint::Device::new(Arc::new(Mutex::new(channel.clone())));
 
     let result = imp.generateKey(&[], None).unwrap();
 
-    let want_req = concat!(
-        "82", // 2-arr (PerformOpReq)
-        "13", // 0x13 = DEVICE_GENERATE_KEY
-        "82", // 1-arr (GenerateKeyRequest)
-        "80", // 0-arr (* KeyParameter)
-        "80", // 0-arr (? AttestationKey)
-    );
+    let want_req = concat!("82", "13", "82", "80", "80",);
     assert_eq!(channel.req_data(), hex::decode(want_req).unwrap());
 
     assert_eq!(result.keyBlob, vec![0x01]);
@@ -85,28 +73,24 @@ fn test_method_roundtrip() {
 
 #[test]
 fn test_method_err_roundtrip() {
-    let channel = TestChannel::new(concat!(
-        "82", // 2-arr (PerformOpResponse)
-        "21", // (PerformOpResponse.error_code = ErrorCode::UNSUPPORTED_PURPOSE)
-        "80", // 0-arr (PerformOpResponse.rsp)
-    ));
+    let channel = TestChannel::new(concat!("82", "21", "80",));
     let imp = keymint::Device::new(Arc::new(Mutex::new(channel.clone())));
 
     let result = imp.generateKey(&[], None);
 
-    let want_req = concat!(
-        "82", // 2-arr (PerformOpReq)
-        "13", // 0x13 = DEVICE_GENERATE_KEY
-        "82", // 1-arr (GenerateKeyRequest)
-        "80", // 0-arr (* KeyParameter)
-        "80", // 0-arr (? AttestationKey)
-    );
+    let want_req = concat!("82", "13", "82", "80", "80",);
     assert_eq!(channel.req_data(), hex::decode(want_req).unwrap());
 
     assert!(result.is_err());
     let status = result.unwrap_err();
-    assert_eq!(status.exception_code(), binder::ExceptionCode::SERVICE_SPECIFIC);
-    assert_eq!(status.service_specific_error(), ErrorCode::UNSUPPORTED_PURPOSE.0);
+    assert_eq!(
+        status.exception_code(),
+        binder::ExceptionCode::SERVICE_SPECIFIC
+    );
+    assert_eq!(
+        status.service_specific_error(),
+        ErrorCode::UNSUPPORTED_PURPOSE.0
+    );
 }
 
 #[test]
@@ -120,12 +104,16 @@ fn test_overhead_size() {
             user_id: 0x7fffffff,
             authenticator_id: 0x7fffffff,
             authenticator_type: HardwareAuthenticatorType::Password,
-            timestamp: Timestamp { milliseconds: 0x7fffffff },
+            timestamp: Timestamp {
+                milliseconds: 0x7fffffff,
+            },
             mac: vec![0; 32],
         }),
         timestamp_token: Some(TimeStampToken {
             challenge: 0x7fffffff,
-            timestamp: Timestamp { milliseconds: 0x7fffffff },
+            timestamp: Timestamp {
+                milliseconds: 0x7fffffff,
+            },
             mac: vec![0; 32],
         }),
         confirmation_token: Some(vec![0; 32]),
@@ -142,7 +130,7 @@ fn test_overhead_size() {
 #[test]
 fn test_extract_rsp_true_marker() {
     let msg_content = vec![0x82, 0x21, 0x80];
-    // test true marker and message content
+
     let mut resp = vec![NEXT_MESSAGE_SIGNAL_TRUE];
     resp.extend_from_slice(&msg_content);
     assert_eq!(Ok((true, msg_content.as_slice())), extract_rsp(&resp));
@@ -151,7 +139,7 @@ fn test_extract_rsp_true_marker() {
 #[test]
 fn test_extract_rsp_false_marker() {
     let msg_content = vec![0x82, 0x21, 0x80];
-    // test false signal and message content
+
     let mut resp = vec![NEXT_MESSAGE_SIGNAL_FALSE];
     resp.extend_from_slice(&msg_content);
     assert_eq!(Ok((false, msg_content.as_slice())), extract_rsp(&resp));
@@ -159,20 +147,24 @@ fn test_extract_rsp_false_marker() {
 
 #[test]
 fn test_extract_rsp_empty_input() {
-    // test invalid (empty) input
     let resp3 = vec![];
     let result = extract_rsp(&resp3);
     assert!(result.is_err());
     let status = result.unwrap_err();
-    assert_eq!(status.exception_code(), binder::ExceptionCode::ILLEGAL_ARGUMENT);
+    assert_eq!(
+        status.exception_code(),
+        binder::ExceptionCode::ILLEGAL_ARGUMENT
+    );
 }
 
 #[test]
 fn test_extract_rsp_single_byte_input() {
-    // test invalid (single byte) input
     let resp4 = vec![NEXT_MESSAGE_SIGNAL_FALSE];
     let result = extract_rsp(&resp4);
     assert!(result.is_err());
     let status = result.unwrap_err();
-    assert_eq!(status.exception_code(), binder::ExceptionCode::ILLEGAL_ARGUMENT);
+    assert_eq!(
+        status.exception_code(),
+        binder::ExceptionCode::ILLEGAL_ARGUMENT
+    );
 }

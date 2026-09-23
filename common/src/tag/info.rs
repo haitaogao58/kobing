@@ -12,40 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Static information about tag behaviour.
-
 use crate::{km_err, Error};
 use kmr_wire::keymint::{Tag, TagType};
 
 #[cfg(test)]
 mod tests;
 
-/// Indicate the allowed use of the tag as a key characteristic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Characteristic {
-    /// Tag is a key characteristic that is enforced by KeyMint (at whatever security
-    /// level the KeyMint implementation is running at), and is visible to KeyMint
-    /// users (e.g. via GetKeyCharacteristics).
     KeyMintEnforced,
 
-    /// Tag is a key characteristic that is enforced by KeyMint (at whatever security
-    /// level the KeyMint implementation is running at), but is not exposed to KeyMint
-    /// users.  If a key has this tag associated with it, all operations on the key
-    /// must have this tag provided as an operation parameter.
     KeyMintHidden,
 
-    /// Tag is a key characteristic that is enforced by Keystore.
     KeystoreEnforced,
 
-    /// Tag is enforced by both KeyMint and Keystore, in different ways.
     BothEnforced,
 
-    /// Tag is not a key characteristic, either because it only acts as an operation
-    /// parameter or because it never appears on the API.
     NotKeyCharacteristic,
 }
 
-/// The set of characteristics that are necessarily enforced by Keystore.
 pub const KEYSTORE_ENFORCED_CHARACTERISTICS: &[Tag] = &[
     Tag::ActiveDatetime,
     Tag::OriginationExpireDatetime,
@@ -57,7 +42,6 @@ pub const KEYSTORE_ENFORCED_CHARACTERISTICS: &[Tag] = &[
     Tag::UnlockedDeviceRequired,
 ];
 
-/// The set of characteristics that are enforced by KeyMint.
 pub const KEYMINT_ENFORCED_CHARACTERISTICS: &[Tag] = &[
     Tag::UserSecureId,
     Tag::Algorithm,
@@ -89,7 +73,6 @@ pub const KEYMINT_ENFORCED_CHARACTERISTICS: &[Tag] = &[
     Tag::StorageKey,
 ];
 
-/// The set of characteristics that are automatically added by KeyMint on key generation.
 pub const AUTO_ADDED_CHARACTERISTICS: &[Tag] = &[
     Tag::Origin,
     Tag::OsVersion,
@@ -98,121 +81,74 @@ pub const AUTO_ADDED_CHARACTERISTICS: &[Tag] = &[
     Tag::BootPatchlevel,
 ];
 
-/// Indicate the allowed use of the tag as a parameter for an operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperationParam {
-    /// Tag acts as an operation parameter for key generation/import operations.
     KeyGenImport,
 
-    /// Tag is provided as an explicit argument for a cipher operation, and must
-    /// match one of the values for this tag in the key characteristics.
     CipherExplicitArgOneOf,
 
-    /// Tag is provided as a parameter for a cipher operation, and must
-    /// match one of the values for this tag in the key characteristics.
     CipherParamOneOf,
 
-    /// Tag is provided as a parameter for a cipher operation, and must
-    /// exactly match the (single) value for this tag in the key characteristics.
     CipherParamExactMatch,
 
-    /// Tag is provided as a parameter for a cipher operation, and is not a key
-    /// characteristic.
     CipherParam,
 
-    /// Tag is not an operation parameter; this *normally* means that it only acts
-    /// as a key characteristic (exception: ROOT_OF_TRUST is neither an operation
-    /// parameter nor a key characteristic).
     NotOperationParam,
 }
 
-/// Indicate whether the KeyMint user is allowed to specify this tag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UserSpecifiable(pub bool);
 
-/// Indicate whether the KeyMint implementation auto-adds this tag as a characteristic to generated
-/// or imported keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AutoAddedCharacteristic(pub bool);
 
-/// Indicate the lifetime of the value associated with the tag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueLifetime {
-    /// Indicates that the value of the tag is communicated to KeyMint from the bootloader, and
-    /// fixed thereafter.
     FixedAtBoot,
-    /// Indicates that the value of the tag is communicated to KeyMint from the HAL service, and
-    /// fixed thereafter.
+
     FixedAtStartup,
-    /// Indicates that the value of the tag varies from key to key, or operation to operation.
+
     Variable,
 }
 
-/// Indicate whether a tag provided as an asymmetric key generation/import parameter is
-/// required for the production of a certificate or attestation extension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CertGenParam {
-    /// Tag not required as a parameter for certificate or extension generation (although its value
-    /// may appear in the extension as a key characteristic).
-    ///
-    /// Example: `Tag::KeySize` doesn't affect cert generation (but does appear in any attestation
-    /// extension).
     NotRequired,
-    /// Tag must be specified as a parameter on key generation in order to get certificate
-    /// generation.
-    ///
-    /// Example: `Tag::CertificateNotBefore` must be specified to get a cert.
+
     Required,
-    /// Tag must be specified as a parameter on key generation in order to get an attestation
-    /// extension in a generated certificate.
-    ///
-    /// Example: `Tag::AttestationChallenge` must be specified to get a cert with an attestation
-    /// extension.
+
     RequiredForAttestation,
-    /// Tag need not be specified as a parameter on key generation, but if specified it does affect
-    /// the contents of the generated certificate (not extension).
-    ///
-    /// Example: `Tag::CertificateSerial` can be omitted, but if supplied it alters the cert.
+
     Optional,
-    /// Tag need not be specified as a parameter on key generation, but if specified it does affect
-    /// the contents of the attestation extension.
-    ///
-    /// Example: `Tag::ResetSinceIdRotation` can be omitted, but if supplied (along with
-    /// `Tag::IncludeUniqueId`) then the attestation extension contents are altered.
+
     OptionalForAttestation,
-    /// Special cases; see individual tags for information.
+
     Special,
 }
 
-/// Information about a tag's behaviour.
 #[derive(Debug, Clone)]
 pub struct Info {
-    /// Tag name as a string for debug purposes.
     pub name: &'static str,
-    /// Indication of the type of the corresponding value.
+
     pub tt: TagType,
-    /// Indicates whether the tag value appears in an attestation extension, and as what ASN.1
-    /// type.
+
     pub ext_asn1_type: Option<&'static str>,
-    /// Indicates whether the KeyMint user can specify this tag.
+
     pub user_can_specify: UserSpecifiable,
-    /// Indicates how this tag acts as a key characteristic.
+
     pub characteristic: Characteristic,
-    /// Indicates how this tag acts as an operation parameter.
+
     pub op_param: OperationParam,
-    /// Indicates whether KeyMint automatically adds this tag to keys as a key characteristic.
+
     pub keymint_auto_adds: AutoAddedCharacteristic,
-    /// Indicates the lifetime of the value associated with this tag.
+
     pub lifetime: ValueLifetime,
-    /// Indicates the role this tag plays in certificate generation for asymmetric keys.
+
     pub cert_gen: CertGenParam,
-    /// Unique bit index for tracking this tag.
+
     bit_index: usize,
 }
 
-/// Global "map" of tags to information about their behaviour.
-/// Encoded as an array to avoid allocation; lookup should only be slightly slower
-/// for this few entries.
 const INFO: [(Tag, Info); 62] = [
     (
         Tag::Purpose,
@@ -529,7 +465,6 @@ const INFO: [(Tag, Info); 62] = [
             bit_index: 20,
         },
     ),
-    // Value must match userID or secureId in authToken param
     (
         Tag::UserSecureId,
         Info {
@@ -691,9 +626,7 @@ const INFO: [(Tag, Info); 62] = [
             op_param: OperationParam::NotOperationParam,
             keymint_auto_adds: AutoAddedCharacteristic(false),
             lifetime: ValueLifetime::Variable,
-            // If `Tag::IncludeUniqueId` is specified for attestation extension
-            // generation, then a value for `Tag::CreationDatetime` is needed for
-            // the calculation of the unique ID value.
+
             cert_gen: CertGenParam::Special,
             bit_index: 31,
         },
@@ -720,9 +653,7 @@ const INFO: [(Tag, Info); 62] = [
             tt: TagType::Bytes,
             ext_asn1_type: Some("RootOfTrust SEQUENCE"),
             user_can_specify: UserSpecifiable(false),
-            // The root of trust is neither a key characteristic nor an operation parameter.
-            // The tag exists only to reserve a numeric value that can be used in the
-            // attestation extension record.
+
             characteristic: Characteristic::NotKeyCharacteristic,
             op_param: OperationParam::NotOperationParam,
             keymint_auto_adds: AutoAddedCharacteristic(false),
@@ -768,14 +699,7 @@ const INFO: [(Tag, Info); 62] = [
             tt: TagType::Bytes,
             ext_asn1_type: Some("OCTET STRING"),
             user_can_specify: UserSpecifiable(false),
-            // The unique ID is neither a key characteristic nor an operation parameter.
-            //
-            // The docs claim that tag exists only to reserve a numeric value that can be used in
-            // the attestation extension record created on key generation.
-            //
-            // However, the unique ID gets a field of its own in the top-level KeyDescription
-            // SEQUENCE; it does not appear in the AuthorizationList SEQUENCE, so this tag value
-            // should never be seen anywhere.
+
             characteristic: Characteristic::NotKeyCharacteristic,
             op_param: OperationParam::NotOperationParam,
             keymint_auto_adds: AutoAddedCharacteristic(false),
@@ -990,14 +914,11 @@ const INFO: [(Tag, Info); 62] = [
             op_param: OperationParam::KeyGenImport,
             keymint_auto_adds: AutoAddedCharacteristic(false),
             lifetime: ValueLifetime::Variable,
-            // Device unique attestation does not affect the contents of the `tbsCertificate`,
-            // but it does change the chain used to sign the resulting certificate.
+
             cert_gen: CertGenParam::Special,
             bit_index: 50,
         },
     ),
-    // A key marked as a storage key cannot be used via most of the KeyMint API. Instead, it
-    // can be passed to `convertStorageKeyToEphemeral` to convert it to an ephemeral key.
     (
         Tag::StorageKey,
         Info {
@@ -1013,7 +934,6 @@ const INFO: [(Tag, Info); 62] = [
             bit_index: 51,
         },
     ),
-    // Can only be user-specified if CALLER_NONCE set in key characteristics.
     (
         Tag::Nonce,
         Info {
@@ -1059,7 +979,6 @@ const INFO: [(Tag, Info); 62] = [
             bit_index: 54,
         },
     ),
-    // Default to 1 if not present
     (
         Tag::CertificateSerial,
         Info {
@@ -1075,7 +994,6 @@ const INFO: [(Tag, Info); 62] = [
             bit_index: 55,
         },
     ),
-    // Default to "CN=Android Keystore Key" if not present
     (
         Tag::CertificateSubject,
         Info {
@@ -1143,9 +1061,7 @@ const INFO: [(Tag, Info); 62] = [
             tt: TagType::Bytes,
             ext_asn1_type: Some("OCTET STRING"),
             user_can_specify: UserSpecifiable(false),
-            // The module hash is neither a key characteristic nor an operation parameter.
-            // The tag exists only to reserve a numeric value that can be used in the
-            // attestation extension record.
+
             characteristic: Characteristic::NotKeyCharacteristic,
             op_param: OperationParam::NotOperationParam,
             keymint_auto_adds: AutoAddedCharacteristic(false),
@@ -1171,7 +1087,6 @@ const INFO: [(Tag, Info); 62] = [
     ),
 ];
 
-/// Return behaviour information about the specified tag.
 pub fn info(tag: Tag) -> Result<&'static Info, Error> {
     for (t, info) in &INFO {
         if tag == *t {
@@ -1181,7 +1096,6 @@ pub fn info(tag: Tag) -> Result<&'static Info, Error> {
     Err(km_err!(InvalidTag, "unknown tag {:?}", tag))
 }
 
-/// Indicate whether a tag is allowed to have multiple values.
 #[inline]
 pub fn multivalued(tag: Tag) -> bool {
     matches!(
@@ -1190,13 +1104,10 @@ pub fn multivalued(tag: Tag) -> bool {
     )
 }
 
-/// Tracker for observed tag values.
 #[derive(Default)]
 pub struct DuplicateTagChecker(u64);
 
 impl DuplicateTagChecker {
-    /// Add the given tag to the set of seen tags, failing if the tag
-    /// has already been observed (and is not multivalued).
     pub fn add(&mut self, tag: Tag) -> Result<(), Error> {
         let bit_idx = info(tag)?.bit_index;
         let bit_mask = 0x01u64 << bit_idx;

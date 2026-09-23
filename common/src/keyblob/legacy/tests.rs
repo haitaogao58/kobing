@@ -30,9 +30,7 @@ fn test_consume_u8() {
 #[test]
 fn test_consume_u32() {
     let buffer = [
-        0x01, 0x02, 0x03, 0x04, //
-        0x04, 0x03, 0x02, 0x01, //
-        0x11, 0x12, 0x13,
+        0x01, 0x02, 0x03, 0x04, 0x04, 0x03, 0x02, 0x01, 0x11, 0x12, 0x13,
     ];
     let mut data = &buffer[..];
     assert_eq!(0x04030201u32, consume_u32(&mut data).unwrap());
@@ -44,9 +42,8 @@ fn test_consume_u32() {
 #[test]
 fn test_consume_u64() {
     let buffer = [
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, //
-        0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, //
-        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02,
+        0x01, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
     ];
     let mut data = &buffer[..];
     assert_eq!(0x0807060504030201u64, consume_u64(&mut data).unwrap());
@@ -58,10 +55,8 @@ fn test_consume_u64() {
 #[test]
 fn test_consume_vec() {
     let buffer = [
-        0x01, 0x00, 0x00, 0x00, 0xaa, //
-        0x00, 0x00, 0x00, 0x00, //
-        0x01, 0x00, 0x00, 0x00, 0xbb, //
-        0x07, 0x00, 0x00, 0x00, 0xbb, // not enough data
+        0x01, 0x00, 0x00, 0x00, 0xaa, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xbb, 0x07,
+        0x00, 0x00, 0x00, 0xbb,
     ];
     let mut data = &buffer[..];
     assert_eq!(vec![0xaa], consume_vec(&mut data).unwrap());
@@ -70,9 +65,7 @@ fn test_consume_vec() {
     let result = consume_vec(&mut data);
     expect_err!(result, "failed to find 7 bytes");
 
-    let buffer = [
-        0x01, 0x00, 0x00, //
-    ];
+    let buffer = [0x01, 0x00, 0x00];
     let mut data = &buffer[..];
     let result = consume_vec(&mut data);
     expect_err!(result, "failed to find 4 bytes");
@@ -83,23 +76,15 @@ fn test_serialize_encrypted_keyblob() {
     let tests = vec![
         (
             concat!(
-                "00", // format
+                "00",
                 "01000000",
-                "aa", // nonce
+                "aa",
                 "02000000",
-                "bbbb", // ciphertext
+                "bbbb",
                 "01000000",
-                "cc", // tag
-                concat!(
-                    "00000000", // no blob data
-                    "00000000", // no params
-                    "00000000", // zero size of params
-                ),
-                concat!(
-                    "00000000", // no blob data
-                    "00000000", // no params
-                    "00000000", // zero size of params
-                ),
+                "cc",
+                concat!("00000000", "00000000", "00000000",),
+                concat!("00000000", "00000000", "00000000",),
             ),
             EncryptedKeyBlob {
                 format: AuthEncryptedBlobFormat::AesOcb,
@@ -115,23 +100,15 @@ fn test_serialize_encrypted_keyblob() {
         ),
         (
             concat!(
-                "01", // format
+                "01",
                 "01000000",
-                "aa", // nonce
+                "aa",
                 "02000000",
-                "bbbb", // ciphertext
+                "bbbb",
                 "01000000",
-                "cc", // tag
-                concat!(
-                    "00000000", // no blob data
-                    "00000000", // no params
-                    "00000000", // zero size of params
-                ),
-                concat!(
-                    "00000000", // no blob data
-                    "00000000", // no params
-                    "00000000", // zero size of params
-                ),
+                "cc",
+                concat!("00000000", "00000000", "00000000",),
+                concat!("00000000", "00000000", "00000000",),
                 "06000000",
             ),
             EncryptedKeyBlob {
@@ -148,25 +125,17 @@ fn test_serialize_encrypted_keyblob() {
         ),
         (
             concat!(
-                "03", // format
+                "03",
                 "01000000",
-                "aa", // nonce
+                "aa",
                 "02000000",
-                "bbbb", // ciphertext
+                "bbbb",
                 "01000000",
-                "cc",       // tag
-                "01010101", // kdf_version
-                "04040404", // addl_info
-                concat!(
-                    "00000000", // no blob data
-                    "00000000", // no params
-                    "00000000", // zero size of params
-                ),
-                concat!(
-                    "00000000", // no blob data
-                    "00000000", // no params
-                    "00000000", // zero size of params
-                ),
+                "cc",
+                "01010101",
+                "04040404",
+                concat!("00000000", "00000000", "00000000",),
+                concat!("00000000", "00000000", "00000000",),
                 "06000000",
             ),
             EncryptedKeyBlob {
@@ -196,45 +165,29 @@ fn test_deserialize_encrypted_keyblob_fail() {
     let tests = vec![
         (
             concat!(
-                "09", // format (invalid)
+                "09",
                 "01000000",
-                "aa", // nonce
+                "aa",
                 "02000000",
-                "bbbb", // ciphertext
+                "bbbb",
                 "01000000",
-                "cc", // tag
-                concat!(
-                    "00000000", // no blob data
-                    "00000000", // no params
-                    "00000000", // zero size of params
-                ),
-                concat!(
-                    "00000000", // no blob data
-                    "00000000", // no params
-                    "00000000", // zero size of params
-                ),
+                "cc",
+                concat!("00000000", "00000000", "00000000",),
+                concat!("00000000", "00000000", "00000000",),
             ),
             "unexpected blob format 9",
         ),
         (
             concat!(
-                "02", // format
+                "02",
                 "01000000",
-                "aa", // nonce
+                "aa",
                 "02000000",
-                "bbbb", // ciphertext
+                "bbbb",
                 "01000000",
-                "cc", // tag
-                concat!(
-                    "00000000", // no blob data
-                    "00000000", // no params
-                    "00000000", // zero size of params
-                ),
-                concat!(
-                    "00000000", // no blob data
-                    "00000000", // no params
-                    "00000000", // zero size of params
-                ),
+                "cc",
+                concat!("00000000", "00000000", "00000000",),
+                concat!("00000000", "00000000", "00000000",),
                 "060000",
             ),
             "unexpected remaining length 3",
@@ -250,28 +203,19 @@ fn test_deserialize_encrypted_keyblob_fail() {
 #[test]
 fn test_deserialize_encrypted_keyblob_truncated() {
     let data = hex::decode(concat!(
-        "00", // format
+        "00",
         "01000000",
-        "aa", // nonce
+        "aa",
         "02000000",
-        "bbbb", // ciphertext
+        "bbbb",
         "01000000",
-        "cc", // tag
-        concat!(
-            "00000000", // no blob data
-            "00000000", // no params
-            "00000000", // zero size of params
-        ),
-        concat!(
-            "00000000", // no blob data
-            "00000000", // no params
-            "00000000", // zero size of params
-        ),
+        "cc",
+        concat!("00000000", "00000000", "00000000",),
+        concat!("00000000", "00000000", "00000000",),
     ))
     .unwrap();
     assert!(EncryptedKeyBlob::deserialize(&data).is_ok());
     for len in 0..data.len() - 1 {
-        // Any truncation of this data is invalid.
         assert!(
             EncryptedKeyBlob::deserialize(&data[..len]).is_err(),
             "deserialize of data[..{}] subset (len={}) unexpectedly succeeded",
@@ -284,22 +228,15 @@ fn test_deserialize_encrypted_keyblob_truncated() {
 #[test]
 fn test_deserialize_encrypted_keyblob_overrun() {
     let data = hex::decode(concat!(
-        "00", // format
+        "00",
         "01000000",
-        "aa", // nonce
+        "aa",
         "02000000",
-        "bbbb", // ciphertext
+        "bbbb",
         "01000000",
-        "cc", // tag
-        concat!(
-            "00000000", // no blob data
-            "00000000", // no params
-            "00000000", // zero size of params
-        ),
-        concat!(
-            "00000001", // blob data
-            "000000",   // truncated params
-        ),
+        "cc",
+        concat!("00000000", "00000000", "00000000",),
+        concat!("00000001", "000000",),
     ))
     .unwrap();
     assert!(EncryptedKeyBlob::deserialize(&data).is_err());

@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Functionality for KeyMint implementation that is common across HAL and TA.
-
 extern crate std;
 
 use core::convert::From;
@@ -35,41 +33,26 @@ pub mod selinux;
 pub mod tag;
 pub mod vintf;
 
-/// Location in a source file where an error originated.
-///
-/// Don't construct this type directly but instead use [`km_err_new!`] to get an [`Error`] with the
-/// correct location.
 #[derive(Copy, Clone, Debug)]
 pub struct ErrorLocation {
-    /// Name of the source file.
     pub file: &'static str,
-    /// Line within the source file.
+
     pub line: u32,
 }
 
-/// A list specifying the categories of error.
 #[derive(Debug)]
 pub enum ErrorKind {
-    /// Error from CBOR conversion.
     Cbor(CborError),
-    /// Error from ASN.1 DER conversion.
+
     Der(DerErrorKind),
-    /// Error as reported on the HAL interface.
-    ///
-    /// The `IKeyMintDevice`, `ISharedSecret` and `ISecureClock` HALs all share the same numbering
-    /// space for error codes, encoded here as [`kmr_wire::keymint::ErrorCode`].
+
     Hal(ErrorCode, Cow<'static, str>),
-    /// Error as reported on the `IRemotelyProvisionedComponent` HAL, which uses its own error
-    /// codes.
+
     Rpc(wire_rpc::ErrorCode, Cow<'static, str>),
-    /// Memory allocation error.
-    ///
-    /// This holds a string literal rather than an allocated `String` to avoid allocating in an
-    /// allocation error path.
+
     Alloc(&'static str),
 }
 
-/// The error type for a KeyMint operation with an [`ErrorKind`] and diagnostic information.
 #[derive(Debug)]
 pub struct Error {
     location: Option<ErrorLocation>,
@@ -77,7 +60,6 @@ pub struct Error {
 }
 
 impl Error {
-    /// Creates a new error at a given source location.
     pub fn new_at(location: ErrorLocation, kind: ErrorKind) -> Error {
         Error {
             location: Some(location),
@@ -85,21 +67,15 @@ impl Error {
         }
     }
 
-    /// Gets the source location of the error.
     pub fn location(&self) -> Option<ErrorLocation> {
         self.location
     }
 
-    /// Gets the kind of error.
     pub fn kind(&self) -> &ErrorKind {
         &self.kind
     }
 }
 
-// The following macros for error generation allow the message portion to be automatically
-// compiled out in future, avoiding potential information leakage and allocation.
-
-/// Macro to build an [`Error`] instance with location information.
 #[macro_export]
 macro_rules! km_err_new {
     { $kind:expr} => {
@@ -107,8 +83,6 @@ macro_rules! km_err_new {
     }
 }
 
-/// Macro to build an [`ErrorKind::Hal`] error for a specific [`ErrorCode`] value known at compile
-/// time: `km_err!(InvalidTag, "some {} format", arg)`.
 #[macro_export]
 macro_rules! km_err {
     { $error_code:ident, $($arg:tt)+ } => {
@@ -119,8 +93,6 @@ macro_rules! km_err {
     }
 }
 
-/// Macro to build an [`ErrorKind::Hal`] error:
-/// `km_verr!(rc, "some {} format", arg)`.
 #[macro_export]
 macro_rules! km_verr {
     { $error_code:expr, $($arg:tt)+ } => {
@@ -131,9 +103,6 @@ macro_rules! km_verr {
     }
 }
 
-/// Macro to build an [`ErrorKind::Alloc`] error. Note that this builds a `&'static str` at compile
-/// time, so there is no allocation needed for the message (which would be failure-prone when
-/// dealing with an allocation failure).
 #[macro_export]
 macro_rules! alloc_err {
     { $len:expr } => {
@@ -141,7 +110,6 @@ macro_rules! alloc_err {
     }
 }
 
-/// Macro to build an [`ErrorKind::Der`] error from a [`der::Error`].
 #[macro_export]
 macro_rules! der_err {
     { $err:expr, $($arg:tt)+ } => {
@@ -152,8 +120,6 @@ macro_rules! der_err {
     }
 }
 
-/// Macro to build an [`ErrorKind::Rpc`] error for a specific [`rpc::ErrorCode`] value known at
-/// compile time: `rpc_err!(Removed, "some {} format", arg)`.
 #[macro_export]
 macro_rules! rpc_err {
     { $error_code:ident, $($arg:tt)+ } => {
@@ -164,7 +130,6 @@ macro_rules! rpc_err {
     }
 }
 
-/// Macro to allocate a `Vec<T>` with the given length reserved, detecting allocation failure.
 #[macro_export]
 macro_rules! vec_try_with_capacity {
     { $len:expr} => {
@@ -178,7 +143,6 @@ macro_rules! vec_try_with_capacity {
     }
 }
 
-/// Macro that mimics `vec!` but which detects allocation failure.
 #[macro_export]
 macro_rules! vec_try {
     { $elem:expr ; $len:expr } => {
@@ -207,7 +171,6 @@ pub fn format_cow(args: core::fmt::Arguments) -> Cow<'static, str> {
     }
 }
 
-/// Function that mimics `slice.to_vec()` but which detects allocation failures.
 #[inline]
 pub fn try_to_vec<T: Clone>(s: &[T]) -> Result<Vec<T>, Error> {
     let mut v = vec_try_with_capacity!(s.len())?;
@@ -215,11 +178,9 @@ pub fn try_to_vec<T: Clone>(s: &[T]) -> Result<Vec<T>, Error> {
     Ok(v)
 }
 
-/// Extension trait to provide fallible-allocation variants of `Vec` methods.
 pub trait FallibleAllocExt<T> {
-    /// Try to add the `value` to the collection, failing on memory exhaustion.
     fn try_push(&mut self, value: T) -> Result<(), std::collections::TryReserveError>;
-    /// Try to extend the collection with the contents of `other`, failing on memory exhaustion.
+
     fn try_extend_from_slice(
         &mut self,
         other: &[T],
@@ -288,7 +249,6 @@ impl From<cbor::value::Error> for Error {
     }
 }
 
-/// Check for an expected error.
 #[macro_export]
 macro_rules! expect_err {
     ($result:expr, $err_msg:expr) => {

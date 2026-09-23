@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! TA functionality for shared secret negotiation.
-
 use crate::device::DeviceHmac;
 use kmr_common::{crypto, crypto::hmac, km_err, vec_try, Error, FallibleAllocExt};
 use kmr_wire::{keymint::Digest, sharedsecret::SharedSecretParameters};
@@ -59,7 +57,7 @@ impl crate::KeyMintTa {
                 nonce,
             });
         }
-        Ok(self.shared_secret_params.as_ref().unwrap().clone()) // safe: filled above
+        Ok(self.shared_secret_params.as_ref().unwrap().clone())
     }
 
     pub(crate) fn compute_shared_secret(
@@ -88,17 +86,16 @@ impl crate::KeyMintTa {
             kmr_common::crypto::SHA256_DIGEST_LEN,
         )?);
 
-        // Potentially hand the negotiated HMAC key off to hardware.
-        self.set_device_hmac(self.dev.keys.hmac_key_agreed(&key).unwrap_or_else(|| {
-            // Key not installed into hardware, so build & use a local impl.
-            Box::new(SoftDeviceHmac { key })
-        }));
+        self.set_device_hmac(
+            self.dev
+                .keys
+                .hmac_key_agreed(&key)
+                .unwrap_or_else(|| Box::new(SoftDeviceHmac { key })),
+        );
         self.device_hmac(kmr_wire::sharedsecret::KEY_CHECK_LABEL.as_bytes())
     }
 }
 
-/// Build the shared secret context from the given `params`, which
-/// is required to include `must_include` (our own parameters).
 pub fn shared_secret_context(
     params: &[SharedSecretParameters],
     must_include: &SharedSecretParameters,
@@ -129,7 +126,6 @@ pub fn shared_secret_context(
     }
 }
 
-/// Device HMAC implementation that holds the HMAC key in memory.
 struct SoftDeviceHmac {
     key: crypto::hmac::Key,
 }

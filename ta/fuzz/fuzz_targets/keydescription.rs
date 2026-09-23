@@ -1,4 +1,3 @@
-//! Fuzzer for parsing ASN.1 key descriptions.
 #![no_main]
 
 use der::Decode;

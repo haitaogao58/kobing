@@ -45,7 +45,9 @@ fn test_cbor_value_cddl() {
 fn test_cbor_value_roundtrip() {
     let obj = NamedFields {
         challenge: 42,
-        timestamp: Timestamp { milliseconds: 10_000_000 },
+        timestamp: Timestamp {
+            milliseconds: 10_000_000,
+        },
         mac: vec![1, 2, 3, 4],
     };
 
@@ -109,7 +111,12 @@ fn test_unnamed_cbor_value_cddl() {
 
 #[test]
 fn test_unnamed_cbor_value_roundtrip() {
-    let obj = UnnamedFields(42, Timestamp { milliseconds: 10_000_000 });
+    let obj = UnnamedFields(
+        42,
+        Timestamp {
+            milliseconds: 10_000_000,
+        },
+    );
 
     let obj_val = obj.clone().to_cbor_value().unwrap();
     let recovered_obj = <UnnamedFields>::from_cbor_value(obj_val).unwrap();
@@ -151,10 +158,12 @@ fn test_unnamed_cbor_parse_fail() {
     }
 }
 
-/// Check for an expected error.
 #[cfg(test)]
 pub fn expect_err<T, E: core::fmt::Debug>(result: Result<T, E>, err_msg: &str) {
-    assert!(result.is_err(), "unexpected success; wanted error containing '{err_msg}'");
+    assert!(
+        result.is_err(),
+        "unexpected success; wanted error containing '{err_msg}'"
+    );
     let err = result.err();
     assert!(
         format!("{err:?}").contains(err_msg),

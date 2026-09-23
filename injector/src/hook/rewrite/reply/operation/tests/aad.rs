@@ -127,8 +127,7 @@ fn ko_bing_route_operation_transaction_error_uses_ko_bing_status_mapping() {
     })
     .expect("transaction status should be normalized into a reply")
     .expect("KOBING transaction status should return an KOBING-owned reply");
-    // A transport-level failure talking to the KOBING operation backend is
-    // reported as a service-specific SYSTEM_ERROR, matching AOSP keystore2.
+
     let mut reply = reply;
     let (data, data_size, offsets, offsets_size) = raw_parts(&mut reply);
     let parsed = unsafe { parcel::parse_reply_status(data, data_size, offsets, offsets_size) }

@@ -12,51 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Functionality for dealing with (a subset of) legacy C++ KeyMint internal messages.
-//!
-//! The inner messages are defined by the classes deriving from `KeymasterMessage` in
-//! `system/keymaster/include/keymaster/android_keymaster_messages.h`. Each of these classes derives
-//! from `Serializable` (in `system/keymaster/include/keymaster/serializable.h`) and implements
-//! `Serialize` and `Deserialize` methods that convert instances of the message into opaque
-//! sequences of bytes.
-//!
-//! However, these opaque sequences of bytes do not self-identify which particular message is
-//! involved.  Instead, there is device specific code to wrap the inner serialized data into some
-//! sort of envelope that identifies the message type.
-//!
-//! 1) For Trusty, this envelope is the `keymaster_message` struct from
-//!    `system/core/trusty/keymaster/include/trusty_keymaster/ipc/keymaster_ipc.h`; this struct holds
-//!    (and is serialized as):
-//!
-//!    - A u32 indicating which command is involved, together with two low bits to encode whether the
-//!      message is a response, and a stop bit.  The command code values are taken from
-//!      `keymaster_command` in
-//!      `system/core/trusty/keymaster/include/trusty_keymaster/ipc/keymaster_ipc.h`.
-//!    - The payload.
-//!
-//! 2) For Cuttlefish, this envelope is the `keymaster_message` struct from
-//!    `device/google/cuttlefish/common/libs/security/keymaster_channel.h`; this struct holds (and is
-//!    serialized as):
-//!
-//!    - A u32 indicating which command is involved, together with a bit indicating if the message is a
-//!      response.  The command code values are taken from `AndroidKeymasterCommand` in
-//!      `system/keymaster/include/keymaster/android_keymaster_messages.h`.
-//!    - A u32 indicating the size of the payload
-//!    - The payload.
-//!
-//! In addition to the common messages defined in `android_keymaster_messages.h`, Trusty includes
-//! additional messages defined in `app/keymaster/trusty_keymaster_messages.h`.
-//!
-//!
-//! Only a subset of legacy messages are of interest; specifically, messages that involve
-//! interactions with things *other* than the HAL service, such as:
-//! - The bootloader.
-//! - Other TAs (e.g. Gatekeeper, ConfirmationUI) running in the secure environment.
-//! - Provisioning tools.
-
-// TODO(b/468831165): remove when rust-lang #147648 is fixed
-#![allow(unused_assignments)]
-
 use crate::{
     keymint::{Algorithm, ErrorCode, VerifiedBootState},
     try_from_n,
@@ -66,23 +21,18 @@ use kmr_derive::LegacySerialize;
 use std::vec::Vec;
 use zeroize::ZeroizeOnDrop;
 
-/// This bit is set in the `u32` command value for response messages.
 const TRUSTY_RESPONSE_BITMASK: u32 = 0x01;
-/// This bit is set in the `u32` command value for the final fragment of response messages; i.e. if
-/// this bit is clear on a response message, more data is expected.
+
 pub const TRUSTY_STOP_BITMASK: u32 = 0x02;
-/// The raw `u32` command value should be shifted right by this number of bits to get the command
-/// enum value.
+
 pub const TRUSTY_CMD_SHIFT: usize = 2;
 
-/// Legacy serialized trusty messages have as a first element the desired command encoded on a `u32`
 pub const CMD_SIZE: usize = 4;
-/// After the command, non-secure port responses have an error code encoded on a `u32`
+
 pub const ERROR_CODE_SIZE: usize = 4;
-/// Non-secure channel response headers are comprised of a CMD and an Error code
+
 pub const LEGACY_NON_SEC_RSP_HEADER_SIZE: usize = CMD_SIZE + ERROR_CODE_SIZE;
 
-/// Key{Mint,master} version identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, N)]
 #[repr(i32)]
 pub enum KmVersion {
@@ -99,7 +49,6 @@ pub enum KmVersion {
 try_from_n!(KmVersion);
 
 impl KmVersion {
-    /// Indicate the message format version associated with a C++ KeyMint version.
     pub fn message_version(&self) -> u32 {
         match self {
             KmVersion::Keymaster1 => 1,
@@ -113,10 +62,8 @@ impl KmVersion {
     }
 }
 
-/// Date marker used by the last version of the previous C++ code.
 pub const KM_DATE: u32 = 20201219;
 
-/// Errors encountered when [de-]serializing legacy messages.
 #[derive(Debug, Clone, Copy)]
 pub enum Error {
     DataTruncated,
@@ -127,13 +74,11 @@ pub enum Error {
     InvalidEnumValue(u32),
 }
 
-/// Identification of Trusty messages.
 pub trait TrustyMessageId {
     type Code;
     fn code(&self) -> Self::Code;
 }
 
-/// Trait for deserialization of Trusty messages.
 trait TrustyDeserialize: TrustyMessageId + Sized {
     fn from_code_and_data(cmd: u32, data: &[u8]) -> Result<Self, Error>;
 }
@@ -148,31 +93,25 @@ fn deserialize_trusty_request_message<T: TrustyDeserialize>(data: &[u8]) -> Resu
     Ok(req)
 }
 
-/// Deserialize a legacy Trusty request message arriving on the non-secure port.
 pub fn deserialize_trusty_req(data: &[u8]) -> Result<TrustyPerformOpReq, Error> {
     deserialize_trusty_request_message(data)
 }
 
-/// Deserialize a legacy Trusty request message arriving on the secure port.
 pub fn deserialize_trusty_secure_req(data: &[u8]) -> Result<TrustyPerformSecureOpReq, Error> {
     deserialize_trusty_request_message(data)
 }
 
-/// Trait to allow serialization of Trusty messages.
 pub trait TrustySerialize: TrustyMessageId {
     fn raw_code(&self) -> u32;
     fn serialize_into(&self, buf: &mut Vec<u8>) -> Result<(), Error>;
 }
 
-/// The result of a legacy operation is either a response message or an error code associated with
-/// the original command.
 pub enum LegacyResult<T> {
     Ok(T),
     Err { cmd: u32, code: ErrorCode },
 }
 
 impl<T: TrustySerialize> LegacyResult<T> {
-    /// Return the command code associated with the result.
     fn cmd(&self) -> u32 {
         match self {
             LegacyResult::Ok(rsp) => rsp.raw_code(),
@@ -181,19 +120,11 @@ impl<T: TrustySerialize> LegacyResult<T> {
     }
 }
 
-/// Serialize a Trusty response message in the form:
-/// - command code: 32-bit integer (native endian)
-/// - return code: 32-bit integer (native endian)
-/// - encoded response data (if return code is 0/Ok).
-///
-/// Note that some legacy response messages (e.g. [`GetDeviceInfoResponse`],
-/// [`GetAuthTokenKeyResponse`]) do not use this encoding format.
 fn serialize_trusty_response_message<T: TrustySerialize>(
     result: LegacyResult<T>,
 ) -> Result<Vec<u8>, Error> {
     let cmd = result.cmd();
-    // None of the supported response messages are large enough to require fragmentation, so always
-    // mark this as the final response.
+
     let raw_cmd = (cmd << TRUSTY_CMD_SHIFT) | TRUSTY_RESPONSE_BITMASK | TRUSTY_STOP_BITMASK;
     let mut buf = Vec::new();
     buf.try_reserve(LEGACY_NON_SEC_RSP_HEADER_SIZE)
@@ -213,12 +144,10 @@ fn serialize_trusty_response_message<T: TrustySerialize>(
     Ok(buf)
 }
 
-/// Serialize a legacy Trusty response message for the non-secure port.
 pub fn serialize_trusty_rsp(rsp: TrustyPerformOpRsp) -> Result<Vec<u8>, Error> {
     serialize_trusty_response_message(LegacyResult::Ok(rsp))
 }
 
-/// Serialize raw data as a Trusty response message without length prefix.
 fn serialize_trusty_raw_rsp(cmd: u32, raw_data: &[u8]) -> Result<Vec<u8>, Error> {
     let raw_cmd = (cmd << TRUSTY_CMD_SHIFT) | TRUSTY_RESPONSE_BITMASK | TRUSTY_STOP_BITMASK;
     let mut buf = Vec::new();
@@ -229,22 +158,12 @@ fn serialize_trusty_raw_rsp(cmd: u32, raw_data: &[u8]) -> Result<Vec<u8>, Error>
     Ok(buf)
 }
 
-/// Serialize a legacy Trusty response message for the secure port.
 pub fn serialize_trusty_secure_rsp(rsp: TrustyPerformSecureOpRsp) -> Result<Vec<u8>, Error> {
     match &rsp {
         TrustyPerformSecureOpRsp::GetAuthTokenKey(GetAuthTokenKeyResponse { key_material }) => {
-            // The `KM_GET_AUTH_TOKEN_KEY` response does not include the error code value.  (The
-            // recipient has to distinguish between OK and error responses by the size of the
-            // response message: 4+32 for OK, 4+4 for error).
             serialize_trusty_raw_rsp(rsp.raw_code(), key_material)
         }
         TrustyPerformSecureOpRsp::GetDeviceInfo(GetDeviceInfoResponse { device_ids }) => {
-            // The `KM_GET_DEVICE_INFO` response does not include the error code value. (The
-            // recipient has to distinguish between OK and error response by attempting to parse
-            // the response data as a CBOR map, and if this fails assume that the response hold
-            // an error code instead).
-            // TODO: update this to include explicit error code information if/when the C++ code
-            // and library are updated.
             serialize_trusty_raw_rsp(rsp.raw_code(), device_ids)
         }
         TrustyPerformSecureOpRsp::GetUdsCerts(GetUdsCertsResponse { uds_certs: _ }) => {
@@ -256,10 +175,6 @@ pub fn serialize_trusty_secure_rsp(rsp: TrustyPerformSecureOpRsp) -> Result<Vec<
     }
 }
 
-/// Deserialize the header of a non-secure channel Trusty response message to know if the operation
-/// succeeded. The Result is the error code of the operation, which is roughly equivalent to the
-/// legacy keymaster error. Notice that if the keymint operation was successful the return error
-/// code will be `ErrorCode::Ok`.
 pub fn deserialize_trusty_rsp_error_code(rsp: &[u8]) -> Result<ErrorCode, Error> {
     if rsp.len() < LEGACY_NON_SEC_RSP_HEADER_SIZE {
         return Err(Error::DataTruncated);
@@ -269,7 +184,6 @@ pub fn deserialize_trusty_rsp_error_code(rsp: &[u8]) -> Result<ErrorCode, Error>
     ErrorCode::try_from(error_code as i32).map_err(|_e| Error::InvalidEnumValue(error_code))
 }
 
-/// Serialize a legacy Trusty error response for the non-secure port.
 pub fn serialize_trusty_error_rsp(
     op: TrustyKeymasterOperation,
     rc: ErrorCode,
@@ -280,7 +194,6 @@ pub fn serialize_trusty_error_rsp(
     })
 }
 
-/// Serialize a legacy Trusty error response for the secure port.
 pub fn serialize_trusty_secure_error_rsp(
     op: TrustyKeymasterSecureOperation,
     rc: ErrorCode,
@@ -291,7 +204,6 @@ pub fn serialize_trusty_secure_error_rsp(
     })
 }
 
-/// Trait that serializes an inner message to/from the format used by the legacy C++ Keymaster code.
 pub trait InnerSerialize: Sized {
     fn deserialize(data: &[u8]) -> Result<(Self, &[u8]), Error>;
     fn serialize_into(&self, buf: &mut Vec<u8>) -> Result<(), Error>;
@@ -412,8 +324,6 @@ impl InnerSerialize for VerifiedBootState {
     }
 }
 
-// Legacy messages of interest from `android_keymaster_messages.h`.
-
 #[derive(Clone, PartialEq, Eq, Debug, LegacySerialize)]
 pub struct GetVersionRequest {}
 #[derive(Clone, PartialEq, Eq, Debug, LegacySerialize)]
@@ -436,7 +346,7 @@ pub struct GetVersion2Response {
 
 #[derive(Clone, PartialEq, Eq, Debug, LegacySerialize)]
 pub struct ConfigureBootPatchlevelRequest {
-    pub boot_patchlevel: u32, // YYYMMDD
+    pub boot_patchlevel: u32,
 }
 #[derive(Clone, PartialEq, Eq, Debug, LegacySerialize)]
 pub struct ConfigureBootPatchlevelResponse {}
@@ -472,8 +382,6 @@ pub struct SetAttestationIdsKM3Request {
 #[derive(Clone, PartialEq, Eq, Debug, LegacySerialize)]
 pub struct SetAttestationIdsKM3Response {}
 
-// Legacy messages of interest from `trusty_keymaster_messages.h`.
-
 #[derive(Clone, PartialEq, Eq, Debug, LegacySerialize)]
 pub struct GetAuthTokenKeyRequest {}
 #[derive(Clone, PartialEq, Eq, ZeroizeOnDrop)]
@@ -481,9 +389,6 @@ pub struct GetAuthTokenKeyResponse {
     pub key_material: Vec<u8>,
 }
 
-/// The serialization of a `GET_AUTH_TOKEN_KEY` response does not include a length field before the
-/// contents of the key, so the auto-derive implementation can't be used. (This also means that
-/// `deserialize()` can't be implemented, because there is no length information available.)
 impl InnerSerialize for GetAuthTokenKeyResponse {
     fn deserialize(_data: &[u8]) -> Result<(Self, &[u8]), Error> {
         Err(Error::UnexpectedResponse)
@@ -500,13 +405,9 @@ impl InnerSerialize for GetAuthTokenKeyResponse {
 pub struct GetDeviceInfoRequest {}
 #[derive(Clone, PartialEq, Eq, ZeroizeOnDrop)]
 pub struct GetDeviceInfoResponse {
-    // Device ID information encoded as a CBOR map.
     pub device_ids: Vec<u8>,
 }
 
-/// The serialization of a `GET_DEVICE_INFO` response does not include a length field before the
-/// contents, so the auto-derive implementation can't be used. (This also means that `deserialize()`
-/// can't be implemented, because there is no length information available.)
 impl InnerSerialize for GetDeviceInfoResponse {
     fn deserialize(_data: &[u8]) -> Result<(Self, &[u8]), Error> {
         Err(Error::UnexpectedResponse)
@@ -529,7 +430,7 @@ pub struct GetUdsCertsResponse {
 #[derive(Clone, PartialEq, Eq, Debug, LegacySerialize)]
 pub struct SetBootParamsRequest {
     pub os_version: u32,
-    pub os_patchlevel: u32, // YYYYMM
+    pub os_patchlevel: u32,
     pub device_locked: bool,
     pub verified_boot_state: VerifiedBootState,
     pub verified_boot_key: Vec<u8>,
@@ -647,29 +548,18 @@ macro_rules! declare_req_rsp_enums {
     };
 }
 
-// Possible legacy Cuttlefish Keymaster operation requests, as:
-// - an enum value with an explicit numeric value
-// - a request enum which has an operation code associated to each variant
-// - a response enum which has the same operation code associated to each variant.
-//
-// Numerical values for discriminants match the values in
-// system/keymaster/include/keymaster/android_keymaster_messages.h
 declare_req_rsp_enums! { CuttlefishKeymasterOperation => (CuttlefishPerformOpReq, CuttlefishPerformOpRsp) {
     ConfigureBootPatchlevel = 33 =>                      (ConfigureBootPatchlevelRequest, ConfigureBootPatchlevelResponse),
     ConfigureVerifiedBootInfo = 34 =>                    (ConfigureVerifiedBootInfoRequest, ConfigureVerifiedBootInfoResponse),
     SetAttestationIds = 38 =>                            (SetAttestationIdsRequest, SetAttestationIdsResponse),
 } }
 
-// Possible legacy Trusty Keymaster operation requests for the non-secure port.
-//
-// Numerical values for discriminants match the values in
-// trusty/user/app/keymaster/ipc/keymaster_ipc.h.
 declare_req_rsp_enums! { TrustyKeymasterOperation => (TrustyPerformOpReq, TrustyPerformOpRsp) {
     GetVersion = 7 =>                                (GetVersionRequest, GetVersionResponse),
     GetVersion2 = 28 =>                              (GetVersion2Request, GetVersion2Response),
     SetBootParams = 0x1000 =>                        (SetBootParamsRequest, SetBootParamsResponse),
 
-    // Provisioning-related requests. Changes here should be reflected in `is_trusty_provisioning_{code,req}`.
+
     SetAttestationKey = 0x2000 =>                    (SetAttestationKeyRequest, SetAttestationKeyResponse),
     AppendAttestationCertChain = 0x3000 =>           (AppendAttestationCertChainRequest, AppendAttestationCertChainResponse),
     ClearAttestationCertChain = 0xa000 =>            (ClearAttestationCertChainRequest, ClearAttestationCertChainResponse),
@@ -681,10 +571,6 @@ declare_req_rsp_enums! { TrustyKeymasterOperation => (TrustyPerformOpReq, Trusty
     ClearUdsCertificate = 0xe0001 =>                 (ClearUdsCertificateRequest, ClearUdsCertificateResponse),
 } }
 
-// Possible legacy Trusty Keymaster operation requests for the secure port.
-//
-// Numerical values for discriminants match the values in
-// trusty/user/base/interface/keymaster/include/interface/keymaster/keymaster.h
 declare_req_rsp_enums! { TrustyKeymasterSecureOperation  => (TrustyPerformSecureOpReq, TrustyPerformSecureOpRsp) {
     GetAuthTokenKey = 0 =>                                  (GetAuthTokenKeyRequest, GetAuthTokenKeyResponse),
     GetDeviceInfo = 1 =>                                    (GetDeviceInfoRequest, GetDeviceInfoResponse),
@@ -692,7 +578,6 @@ declare_req_rsp_enums! { TrustyKeymasterSecureOperation  => (TrustyPerformSecure
     SetAttestationIds = 0xc000 =>                           (SetAttestationIdsRequest, SetAttestationIdsResponse),
 } }
 
-/// Indicate whether a request message is a bootloader message.
 pub fn is_trusty_bootloader_code(code: u32) -> bool {
     matches!(
         TrustyKeymasterOperation::n(code),
@@ -701,7 +586,6 @@ pub fn is_trusty_bootloader_code(code: u32) -> bool {
     )
 }
 
-/// Indicate whether a request message is a bootloader message.
 pub fn is_trusty_bootloader_req(req: &TrustyPerformOpReq) -> bool {
     matches!(
         req,
@@ -709,7 +593,6 @@ pub fn is_trusty_bootloader_req(req: &TrustyPerformOpReq) -> bool {
     )
 }
 
-/// Indicate whether a request message is a provisioning message.
 pub fn is_trusty_provisioning_code(code: u32) -> bool {
     matches!(
         TrustyKeymasterOperation::n(code),
@@ -724,7 +607,6 @@ pub fn is_trusty_provisioning_code(code: u32) -> bool {
     )
 }
 
-/// Indicate whether a request message is a provisioning message.
 pub fn is_trusty_provisioning_req(req: &TrustyPerformOpReq) -> bool {
     matches!(
         req,
@@ -746,7 +628,6 @@ mod tests {
     #[test]
     fn test_inner_serialize() {
         let msg = SetBootParamsRequest {
-            // `u32` encoding uses native byte order so use symmetric values
             os_version: 0x01010101,
             os_patchlevel: 0x02020202,
             device_locked: false,
@@ -756,21 +637,13 @@ mod tests {
         };
         #[cfg(target_endian = "little")]
         let hex_data = concat!(
-            "01010101", // os_version
-            "02020202", // os_patchlevel
-            "00000000", // device_locked
-            "02000000", // verified_boot_state
-            "03000000", "010203", // verified_boot_key
-            "03000000", "050403", // verified_boot_key
+            "01010101", "02020202", "00000000", "02000000", "03000000", "010203", "03000000",
+            "050403",
         );
         #[cfg(target_endian = "big")]
         let hex_data = concat!(
-            "01010101", // os_version
-            "02020202", // os_patchlevel
-            "00000000", // device_locked
-            "02000002", // verified_boot_state
-            "00000003", "010203", // verified_boot_key
-            "00000003", "050403", // verified_boot_key
+            "01010101", "02020202", "00000000", "02000002", "00000003", "010203", "00000003",
+            "050403",
         );
         let data = hex::decode(hex_data).unwrap();
 
@@ -801,7 +674,7 @@ mod tests {
     }
     #[test]
     fn test_inner_deserialize_fail() {
-        let data = "010101"; // too short
+        let data = "010101";
         let data = hex::decode(data).unwrap();
         let result = ConfigureBootPatchlevelRequest::deserialize(&data);
         assert!(result.is_err());
@@ -826,15 +699,9 @@ mod tests {
             uds_certs: vec![1, 2, 3],
         });
         #[cfg(target_endian = "little")]
-        let data = concat!(
-            /* cmd */ "0b000000", /* rc */ "00000000", /* len */ "03000000",
-            /* data */ "010203"
-        );
+        let data = concat!("0b000000", "00000000", "03000000", "010203");
         #[cfg(target_endian = "big")]
-        let data = concat!(
-            /* cmd */ "0000000b", /* rc */ "00000000", /* len */ "00000003",
-            /* data */ "010203"
-        );
+        let data = concat!("0000000b", "00000000", "00000003", "010203");
         let got_data = serialize_trusty_secure_rsp(msg).unwrap();
         assert_eq!(hex::encode(got_data), data);
     }

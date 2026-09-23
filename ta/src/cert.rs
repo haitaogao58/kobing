@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Generation of certificates and attestation extensions.
-
 use crate::keys::SigningInfo;
 use core::time::Duration;
 use der::asn1::{OctetStringRef, SetOfVec};
@@ -55,7 +53,6 @@ use x509_cert::{
     time::Time,
 };
 
-/// OID value for the Android Attestation extension.
 pub const ATTESTATION_EXTENSION_OID: ObjectIdentifier =
     ObjectIdentifier::new_unwrap("1.3.6.1.4.1.11129.2.1.17");
 const X509_ATTESTATION_EXTENSION_OID: X509ObjectIdentifier =
@@ -92,8 +89,6 @@ pub(crate) struct Certificate {
     signature: X509BitString,
 }
 
-/// Empty value to use in the `RootOfTrust.verifiedBootKey` field in attestations
-/// if an empty value was passed to the bootloader.
 const EMPTY_BOOT_KEY: [u8; 32] = [0u8; 32];
 
 pub(crate) fn x509_der_error(err: x509_der::Error, context: core::fmt::Arguments<'_>) -> Error {
@@ -101,7 +96,6 @@ pub(crate) fn x509_der_error(err: x509_der::Error, context: core::fmt::Arguments
     Error::from(CommonErrorKind::Der(ErrorKind::Failed))
 }
 
-/// Build an ASN.1 DER-encodable `Certificate`.
 pub(crate) fn certificate(tbs_cert: TbsCertificate, sig_val: &[u8]) -> Result<Certificate, Error> {
     Ok(Certificate {
         signature_algorithm: tbs_cert.signature.clone(),
@@ -111,7 +105,6 @@ pub(crate) fn certificate(tbs_cert: TbsCertificate, sig_val: &[u8]) -> Result<Ce
     })
 }
 
-/// Build an ASN.1 DER-encodable `tbsCertificate`.
 pub(crate) fn tbs_certificate<'a>(
     info: &'a Option<SigningInfo>,
     spki_der: &[u8],
@@ -126,11 +119,6 @@ pub(crate) fn tbs_certificate<'a>(
     let not_before = get_tag_value!(params, CertificateNotBefore, ErrorCode::MissingNotBefore)?;
     let not_after = get_tag_value!(params, CertificateNotAfter, ErrorCode::MissingNotAfter)?;
 
-    // Determine the contents of the `AlgorithmIdentifier`, as an OID and parameters:
-    // - RSA: RFC 4055 section 5 requires `NULL` parameters.
-    // - ECDSA: RFC 5758 section 3.2 requires parameters be omitted.
-    // - EdDSA: RFC 8410 section 3 requires parameters be omitted.
-    // - ML-DSA: RFC 9881 section 2 requires parameters be omitted.
     let (sig_alg_oid, parameters) = match info {
         Some(info) => match info.signing_key {
             KeyMaterial::Rsa(_) => (
@@ -146,29 +134,26 @@ pub(crate) fn tbs_certificate<'a>(
                 ));
             }
         },
-        None => {
-            // No signing key, so signature will be empty, but we still need a value here.
-            match tag::get_algorithm(params)? {
-                keymint::Algorithm::Rsa => (
-                    crypto::rsa::SHA256_PKCS1_SIGNATURE_OID,
-                    Some(X509Any::null()),
-                ),
-                keymint::Algorithm::Ec => (
-                    crypto::ec::curve_to_signing_oid(tag::get_ec_curve(chars)?),
-                    None,
-                ),
-                keymint::Algorithm::MlDsa => {
-                    let variant = tag::get_mldsa_variant(chars)?;
-                    (crypto::mldsa::variant_to_oid(variant), None)
-                }
-                alg => {
-                    return Err(km_err!(
-                        UnsupportedAlgorithm,
-                        "unexpected algorithm for public key {alg:?}",
-                    ))
-                }
+        None => match tag::get_algorithm(params)? {
+            keymint::Algorithm::Rsa => (
+                crypto::rsa::SHA256_PKCS1_SIGNATURE_OID,
+                Some(X509Any::null()),
+            ),
+            keymint::Algorithm::Ec => (
+                crypto::ec::curve_to_signing_oid(tag::get_ec_curve(chars)?),
+                None,
+            ),
+            keymint::Algorithm::MlDsa => {
+                let variant = tag::get_mldsa_variant(chars)?;
+                (crypto::mldsa::variant_to_oid(variant), None)
             }
-        }
+            alg => {
+                return Err(km_err!(
+                    UnsupportedAlgorithm,
+                    "unexpected algorithm for public key {alg:?}",
+                ))
+            }
+        },
     };
     let sig_alg_oid = x509_oid(sig_alg_oid)?;
     let spki = <X509SubjectPublicKeyInfoOwned as x509_der::Decode>::from_der(spki_der)
@@ -178,7 +163,6 @@ pub(crate) fn tbs_certificate<'a>(
         None => cert_subject,
     };
 
-    // Build certificate extensions
     let key_usage_extension = Extension {
         extn_id: KeyUsage::OID,
         critical: true,
@@ -187,7 +171,7 @@ pub(crate) fn tbs_certificate<'a>(
     };
 
     let mut cert_extensions = vec_try_with_capacity!(3)?;
-    cert_extensions.push(key_usage_extension); // capacity enough
+    cert_extensions.push(key_usage_extension);
 
     if let Some(basic_constraint_ext_val) = basic_constraint_ext_val {
         let basic_constraint_ext = Extension {
@@ -196,7 +180,7 @@ pub(crate) fn tbs_certificate<'a>(
             extn_value: X509OctetString::new(basic_constraint_ext_val)
                 .map_err(|e| x509_der_error(e, format_args!("failed to build OctetString")))?,
         };
-        cert_extensions.push(basic_constraint_ext); // capacity enough
+        cert_extensions.push(basic_constraint_ext);
     }
 
     if let Some(attest_extn_val) = attestation_ext {
@@ -206,7 +190,7 @@ pub(crate) fn tbs_certificate<'a>(
             extn_value: X509OctetString::new(attest_extn_val)
                 .map_err(|e| x509_der_error(e, format_args!("failed to build OctetString")))?,
         };
-        cert_extensions.push(attest_ext) // capacity enough
+        cert_extensions.push(attest_ext)
     }
 
     Ok(TbsCertificate {
@@ -236,7 +220,6 @@ pub(crate) fn tbs_certificate<'a>(
     })
 }
 
-/// Extract the Subject field from a `keymint::Certificate` as DER-encoded data.
 pub(crate) fn extract_subject(cert: &keymint::Certificate) -> Result<Vec<u8>, Error> {
     let cert = <x509_cert::Certificate as x509_der::Decode>::from_der(&cert.encoded_certificate)
         .map_err(|e| km_err!(EncodingError, "failed to parse certificate: {e:?}"))?;
@@ -250,15 +233,12 @@ fn x509_oid(oid: ObjectIdentifier) -> Result<X509ObjectIdentifier, Error> {
         .map_err(|_| Error::from(CommonErrorKind::Der(ErrorKind::OidMalformed)))
 }
 
-/// Construct x.509-cert::time::Time from `DateTime`.
-/// RFC 5280 section 4.1.2.5 requires that UtcTime is used up to 2049
-/// and GeneralizedTime from 2050 onwards
 fn validity_time_from_datetime(when: DateTime) -> Result<Time, Error> {
     let dt_err = |_| Error::from(CommonErrorKind::Der(ErrorKind::DateTime));
     let secs_since_epoch: i64 = when.ms_since_epoch / 1000;
 
     if when.ms_since_epoch >= 0 {
-        const MAX_UTC_TIME: Duration = Duration::from_secs(2524608000); // 2050-01-01T00:00:00Z
+        const MAX_UTC_TIME: Duration = Duration::from_secs(2524608000);
 
         let duration = Duration::from_secs(u64::try_from(secs_since_epoch).map_err(dt_err)?);
         if duration >= MAX_UTC_TIME {
@@ -275,7 +255,6 @@ fn validity_time_from_datetime(when: DateTime) -> Result<Time, Error> {
             ))
         }
     } else {
-        // TODO: cope with negative offsets from Unix Epoch.
         Ok(Time::GeneralTime(
             X509GeneralizedTime::from_unix_duration(Duration::from_secs(0)).map_err(|e| {
                 x509_der_error(
@@ -299,9 +278,7 @@ pub(crate) fn x509_der_encode<T: x509_der::Encode>(obj: &T) -> Result<Vec<u8>, x
     Ok(encoded_data)
 }
 
-/// Build key usage extension bits.
 pub(crate) fn key_usage_extension_bits(params: &[KeyParam]) -> KeyUsage {
-    // Build `KeyUsage` bitmask based on allowed purposes for the key.
     let mut key_usage_bits = FlagSet::<KeyUsages>::default();
     for param in params {
         if let KeyParam::Purpose(purpose) = param {
@@ -328,7 +305,6 @@ pub(crate) fn key_usage_extension_bits(params: &[KeyParam]) -> KeyUsage {
     KeyUsage(key_usage_bits)
 }
 
-/// Build basic constraints extension value
 pub(crate) fn basic_constraints_ext_value(ca_required: bool) -> BasicConstraints {
     BasicConstraints {
         ca: ca_required,
@@ -336,20 +312,6 @@ pub(crate) fn basic_constraints_ext_value(ca_required: bool) -> BasicConstraints
     }
 }
 
-/// Attestation extension contents
-///
-/// ```asn1
-/// KeyDescription ::= SEQUENCE {
-///     attestationVersion         INTEGER,
-///     attestationSecurityLevel   SecurityLevel,
-///     keyMintVersion             INTEGER,
-///     keymintSecurityLevel       SecurityLevel,
-///     attestationChallenge       OCTET_STRING,
-///     uniqueId                   OCTET_STRING,
-///     softwareEnforced           AuthorizationList,
-///     hardwareEnforced           AuthorizationList,
-/// }
-/// ```
 #[derive(Debug, Clone, Sequence, PartialEq)]
 pub(crate) struct AttestationExtension<'a> {
     attestation_version: i32,
@@ -368,14 +330,6 @@ impl AssociatedOid for AttestationExtension<'_> {
     const OID: ObjectIdentifier = ATTESTATION_EXTENSION_OID;
 }
 
-/// Security level enumeration
-/// ```asn1
-/// SecurityLevel ::= ENUMERATED {
-///     Software                   (0),
-///     TrustedEnvironment         (1),
-///     StrongBox                  (2),
-/// }
-/// ```
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, Enumerated, PartialEq)]
 enum SecurityLevel {
@@ -384,7 +338,6 @@ enum SecurityLevel {
     Strongbox = 2,
 }
 
-/// Build an ASN.1 DER-encoded attestation extension.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn attestation_extension<'a>(
     keymint_version: i32,
@@ -449,62 +402,10 @@ pub(crate) fn attestation_extension<'a>(
     Ok(ext)
 }
 
-/// Struct for creating ASN.1 DER-serialized `AuthorizationList`. The fields in the ASN.1
-/// sequence are categorized into four fields in the struct based on their usage.
-/// ```asn1
-/// AuthorizationList ::= SEQUENCE {
-///     purpose                    [1] EXPLICIT SET OF INTEGER OPTIONAL,
-///     algorithm                  [2] EXPLICIT INTEGER OPTIONAL,
-///     keySize                    [3] EXPLICIT INTEGER OPTIONAL,
-///     blockMode                  [4] EXPLICIT SET OF INTEGER OPTIONAL,  -- Symmetric keys only
-///     digest                     [5] EXPLICIT SET OF INTEGER OPTIONAL,
-///     padding                    [6] EXPLICIT SET OF INTEGER OPTIONAL,
-///     callerNonce                [7] EXPLICIT NULL OPTIONAL,  -- Symmetric keys only
-///     minMacLength               [8] EXPLICIT INTEGER OPTIONAL,  -- Symmetric keys only
-///     ecCurve                    [10] EXPLICIT INTEGER OPTIONAL,
-///     mlDsaVariant               [11] EXPLICIT INTEGER OPTIONAL,
-///     rsaPublicExponent          [200] EXPLICIT INTEGER OPTIONAL,
-///     mgfDigest                  [203] EXPLICIT SET OF INTEGER OPTIONAL,
-///     rollbackResistance         [303] EXPLICIT NULL OPTIONAL,
-///     earlyBootOnly              [305] EXPLICIT NULL OPTIONAL,
-///     activeDateTime             [400] EXPLICIT INTEGER OPTIONAL,
-///     originationExpireDateTime  [401] EXPLICIT INTEGER OPTIONAL,
-///     usageExpireDateTime        [402] EXPLICIT INTEGER OPTIONAL,
-///     usageCountLimit            [405] EXPLICIT INTEGER OPTIONAL,
-///     userSecureId               [502] EXPLICIT INTEGER OPTIONAL,  -- Only used on key import
-///     noAuthRequired             [503] EXPLICIT NULL OPTIONAL,
-///     userAuthType               [504] EXPLICIT INTEGER OPTIONAL,
-///     authTimeout                [505] EXPLICIT INTEGER OPTIONAL,
-///     allowWhileOnBody           [506] EXPLICIT NULL OPTIONAL,
-///     trustedUserPresenceReq     [507] EXPLICIT NULL OPTIONAL,
-///     trustedConfirmationReq     [508] EXPLICIT NULL OPTIONAL,
-///     unlockedDeviceReq          [509] EXPLICIT NULL OPTIONAL,
-///     creationDateTime           [701] EXPLICIT INTEGER OPTIONAL,
-///     origin                     [702] EXPLICIT INTEGER OPTIONAL,
-///     rootOfTrust                [704] EXPLICIT RootOfTrust OPTIONAL,
-///     osVersion                  [705] EXPLICIT INTEGER OPTIONAL,
-///     osPatchLevel               [706] EXPLICIT INTEGER OPTIONAL,
-///     attestationApplicationId   [709] EXPLICIT OCTET_STRING OPTIONAL,
-///     attestationIdBrand         [710] EXPLICIT OCTET_STRING OPTIONAL,
-///     attestationIdDevice        [711] EXPLICIT OCTET_STRING OPTIONAL,
-///     attestationIdProduct       [712] EXPLICIT OCTET_STRING OPTIONAL,
-///     attestationIdSerial        [713] EXPLICIT OCTET_STRING OPTIONAL,
-///     attestationIdImei          [714] EXPLICIT OCTET_STRING OPTIONAL,
-///     attestationIdMeid          [715] EXPLICIT OCTET_STRING OPTIONAL,
-///     attestationIdManufacturer  [716] EXPLICIT OCTET_STRING OPTIONAL,
-///     attestationIdModel         [717] EXPLICIT OCTET_STRING OPTIONAL,
-///     vendorPatchLevel           [718] EXPLICIT INTEGER OPTIONAL,
-///     bootPatchLevel             [719] EXPLICIT INTEGER OPTIONAL,
-///     deviceUniqueAttestation    [720] EXPLICIT NULL OPTIONAL,
-///     attestationIdSecondImei    [723] EXPLICIT OCTET_STRING OPTIONAL,
-///     -- moduleHash contains a SHA-256 hash of DER-encoded `Modules`
-///     moduleHash                 [724] EXPLICIT OCTET_STRING OPTIONAL,
-/// }
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthorizationList<'a> {
     pub auths: Cow<'a, [KeyParam]>,
-    /// Whether to include `UserSecureId` value if found in `auths` when encoding.
+
     pub encode_sid: bool,
     pub ids: AttestationIds<'a>,
     pub rot_info: Option<Vec<u8>>,
@@ -512,7 +413,6 @@ pub struct AuthorizationList<'a> {
     pub module_hash: Option<Cow<'a, [u8]>>,
 }
 
-/// Tags used in `AuthorizationList` in the schema-defined order.
 const AUTHORIZATION_LIST_TAGS: &[Tag] = &[
     Tag::Purpose,
     Tag::Algorithm,
@@ -615,7 +515,7 @@ impl AttestationIds<'_> {
                     Some(_) => return Err(km_err!(InvalidTag, "duplicate tag model")),
                     None => ids.model = Some(v.into()),
                 },
-                // Ignore all others.
+
                 _ => (),
             }
         }
@@ -667,7 +567,7 @@ impl AttestationIds<'_> {
                 "attestation ID mismatch for serial"
             ));
         }
-        // The IMEI fields can match any valid IMEI value.
+
         if self
             .imei
             .as_ref()
@@ -713,9 +613,6 @@ impl AttestationIds<'_> {
 }
 
 impl<'a> AuthorizationList<'a> {
-    /// Build an `AuthorizationList` ready for serialization. This constructor will fail if device
-    /// ID attestation is required but the relevant IDs are missing or mismatched.  Any
-    /// `UserSecureId` values included in `auths` will be ignored on encoding.
     fn new(
         auths: &'a [KeyParam],
         keygen_params: &'a [KeyParam],
@@ -750,19 +647,6 @@ impl<'a> AuthorizationList<'a> {
         })
     }
 
-    /// Build an `AuthorizationList` using a set of key parameters.
-    ///
-    /// The checks for the attestation ids are not run here in contrast to `AuthorizationList::new`
-    /// because this method is used to construct an `AuthorizationList` in the decode path rather
-    /// than in the encode path.
-    ///
-    /// Any (single) `UserSecureId` value in `key_params` will be included when the
-    /// `AuthorizationList` is DER-encoded.
-    ///
-    /// Note: decode path is currently used only by `KeyMintTa::import_wrapped_key` functionality,
-    /// which only uses `auth` field of `AuthorizationList`. Decoding for the whole
-    /// `AuthorizationList` is added here for the completeness and anticipating a future use case of
-    /// decoding the attestation extension from an X.509 certificate.
     fn new_from_key_params(key_params: Vec<KeyParam>) -> Result<Self, der::Error> {
         let mut auths = Vec::new();
         let mut ids = AttestationIds::default();
@@ -770,7 +654,6 @@ impl<'a> AuthorizationList<'a> {
         let mut attest_app_id: Option<Cow<'a, [u8]>> = None;
         let mut module_hash: Option<Cow<'a, [u8]>> = None;
 
-        // Divide key parameters into key characteristics and key generation parameters.
         for param in key_params {
             match param {
                 KeyParam::RootOfTrust(encoded_rot) => rot = Some(encoded_rot),
@@ -799,21 +682,15 @@ impl<'a> AuthorizationList<'a> {
     }
 }
 
-/// Convert an error into a `der::Error` indicating allocation failure.
 #[inline]
 fn der_alloc_err<T>(_e: T) -> der::Error {
     der::Error::new(der::ErrorKind::Overlength, der::Length::ZERO)
 }
 
-/// Implementation of [`der::DecodeValue`] which constructs an AuthorizationList from bytes.
 impl<'a> der::DecodeValue<'a> for AuthorizationList<'a> {
     type Error = der::Error;
 
     fn decode_value<R: der::Reader<'a>>(decoder: &mut R, header: der::Header) -> der::Result<Self> {
-        // TODO: define a MAX_SIZE for AuthorizationList and check whether the actual length from
-        // the length field of header is less than the MAX_SIZE
-
-        // Check for an empty sequence
         if header.length().is_zero() {
             return Ok(AuthorizationList {
                 auths: Vec::new().into(),
@@ -839,7 +716,7 @@ impl<'a> der::DecodeValue<'a> for AuthorizationList<'a> {
             }
             if non_consumed_tag == Some(tag) {
                 non_consumed_tag = None;
-                // Decode the length of the inner encoding
+
                 let inner_len = Length::decode(decoder)?;
                 if decoder.remaining_len() < inner_len {
                     return Err(decoder.error(der::ErrorKind::Incomplete {
@@ -858,17 +735,9 @@ impl<'a> der::DecodeValue<'a> for AuthorizationList<'a> {
             }));
         }
 
-        // Process the key params and construct the `AuthorizationList`
         AuthorizationList::new_from_key_params(key_params)
     }
 }
-
-// Macros to decode key parameters from their ASN.1 encoding in one of the forms:
-//   field    [<tag>] EXPLICIT SET OF INTEGER OPTIONAL
-//   field    [<tag>] EXPLICIT INTEGER OPTIONAL
-//   field    [<tag>] EXPLICIT NULL OPTIONAL
-//   field    [<tag>] EXPLICIT OCTET STRING OPTIONAL
-// There are three different variants for the INTEGER type.
 
 macro_rules! key_params_from_asn1_set_of_integer {
     {$variant:ident, $tlv_bytes:expr, $key_params:expr} => {
@@ -993,10 +862,6 @@ fn decode_value_from_bytes(
             key_param_from_asn1_integer!(UsageCountLimit, u32, tlv_bytes, key_params);
         }
         Tag::UserSecureId => {
-            // Note that the `UserSecureId` tag has tag type `ULONG_REP` indicating that it can be
-            // repeated, but the ASN.1 schema for `AuthorizationList` has this field as having type
-            // `INTEGER` not `SET OF INTEGER`. This reflects the special usage of `UserSecureId`
-            // in `importWrappedKey()` processing.
             key_param_from_asn1_integer!(UserSecureId, u64, tlv_bytes, key_params);
         }
         Tag::NoAuthRequired => {
@@ -1082,35 +947,26 @@ fn decode_value_from_bytes(
             key_param_from_asn1_octet_string!(ModuleHash, tlv_bytes, key_params);
         }
         _ => {
-            // Note: `der::Error` or `der::ErrorKind` is not expressive enough for decoding
-            // tags in high tag form. Documentation of this error kind does not match this
-            // situation. But we use the `der::ErrorKind` as close as possible.
             return Err(der::ErrorKind::TagNumberInvalid.into());
         }
     }
     Ok(())
 }
 
-/// Decode the tag of a field in AuthorizationList.
 fn decode_tag_from_bytes<'a, R: der::Reader<'a>>(
     decoder: &mut R,
 ) -> Result<Option<keymint::Tag>, der::Error> {
-    // Avoid reading for tags beyond the size of the encoded AuthorizationList
     if decoder.remaining_len() == Length::ZERO {
         return Ok(None);
     }
     let b1 = decoder.read_byte()?;
     if b1 & 0b11100000 != 0b10100000 {
-        // KeyMint tags should be encoded as context-specific (0b10......) constructed
-        // (0b..1.....) ASN.1 tag values.
         return Err(der::ErrorKind::TagNumberInvalid.into());
     }
     let b1 = b1 & 0b00011111u8;
     let raw_tag = if b1 == 0b00011111u8 {
-        // High tag form, read the next byte
         let b2 = decoder.read_byte()?;
         if b2 & 0x80u8 == 0x80u8 {
-            // Encoded tag length is 3, read the next byte
             let b3 = decoder.read_byte()?;
             let tag_byte: u16 = ((b2 ^ 0x80u8) as u16) << 7;
             (tag_byte | b3 as u16) as u32
@@ -1122,22 +978,12 @@ fn decode_tag_from_bytes<'a, R: der::Reader<'a>>(
     };
     let tag = from_raw_tag_value(raw_tag);
     if tag == Tag::Invalid {
-        // Note: der::Error or der::ErrorKind is not expressive enough for decoding tags
-        // in high tag form. Documentation of this error kind does not match this situation.
-        // Find a better way to express the error.
         Err(der::ErrorKind::TagNumberInvalid.into())
     } else {
         Ok(Some(tag))
     }
 }
 
-// Macros to extract key characteristics for ASN.1 encoding into one of the forms:
-//   field    [<tag>] EXPLICIT SET OF INTEGER OPTIONAL
-//   field    [<tag>] EXPLICIT INTEGER OPTIONAL
-//   field    [<tag>] EXPLICIT NULL OPTIONAL
-//   field    [<tag>] EXPLICIT OCTET STRING OPTIONAL
-// together with an extra variant that deals with OCTET STRING values that must match
-// a provisioned attestation ID value.
 macro_rules! asn1_set_of_integer {
     { $params:expr, $variant:ident } => {
         {
@@ -1148,15 +994,15 @@ macro_rules! asn1_set_of_integer {
                 }
             }
             if !results.is_empty() {
-                // The input key characteristics have been sorted and so are in numerical order, but
-                // may contain duplicates that need to be weeded out.
+
+
                 let mut set = der::asn1::SetOfVec::new();
                 let mut prev_val = None;
                 for val in results {
                     let val = val as i64;
                     if let Some(prev) = prev_val {
                         if prev == val {
-                            continue; // skip duplicate
+                            continue;
                         }
                     }
                     set.insert_ordered(val)?;
@@ -1380,8 +1226,7 @@ impl EncodeValue for AuthorizationList<'_> {
             writer,
         )?;
         asn1_val(asn1_integer!(self.auths, UsageCountLimit), writer)?;
-        // Note that `UserSecureId` is only included in the extension for
-        // importWrappedKey() cases.
+
         if self.encode_sid {
             asn1_val(asn1_integer!(self.auths, UserSecureId), writer)?;
         }
@@ -1394,19 +1239,19 @@ impl EncodeValue for AuthorizationList<'_> {
         asn1_val(asn1_null!(self.auths, UnlockedDeviceRequired), writer)?;
         asn1_val(asn1_integer_datetime!(self.auths, CreationDatetime), writer)?;
         asn1_val(asn1_integer!(self.auths, Origin), writer)?;
-        // Root of trust info is a special case (not in key characteristics).
+
         asn1_val(
             asn1_root_of_trust(Tag::RootOfTrust, self.rot_info.as_deref())?,
             writer,
         )?;
         asn1_val(asn1_integer!(self.auths, OsVersion), writer)?;
         asn1_val(asn1_integer!(self.auths, OsPatchlevel), writer)?;
-        // Attestation application ID is a special case (not in key characteristics).
+
         asn1_val(
             asn1_octet_string(Tag::AttestationApplicationId, self.app_id.as_deref())?,
             writer,
         )?;
-        // Accuracy of attestation IDs has already been checked, so just copy across.
+
         asn1_val(
             asn1_octet_string(Tag::AttestationIdBrand, self.ids.brand.as_deref())?,
             writer,
@@ -1481,17 +1326,12 @@ impl<T: Encode> ExplicitTaggedValue<T> {
 
     fn explicit_tag_encode(&self, encoder: &mut dyn der::Writer) -> der::Result<()> {
         match self.tag {
-            0..=0x1e => {
-                // b101vvvvv is context-specific+constructed
-                encoder.write_byte(0b10100000u8 | (self.tag as u8))
-            }
+            0..=0x1e => encoder.write_byte(0b10100000u8 | (self.tag as u8)),
             0x1f..=0x7f => {
-                // b101 11111 indicates a context-specific+constructed long-form tag number
                 encoder.write_byte(0b10111111)?;
                 encoder.write_byte(self.tag as u8)
             }
             0x80..=0x3fff => {
-                // b101 11111 indicates a context-specific+constructed long-form tag number
                 encoder.write_byte(0b10111111)?;
                 encoder.write_byte((self.tag >> 7) as u8 | 0x80u8)?;
                 encoder.write_byte((self.tag & 0x007f) as u8)
@@ -1501,8 +1341,6 @@ impl<T: Encode> ExplicitTaggedValue<T> {
     }
 }
 
-/// The der library explicitly does not support `TagNumber` values bigger than 31,
-/// which are required here.  Work around this by manually providing the encoding functionality.
 impl<T: Encode> Encode for ExplicitTaggedValue<T> {
     fn encoded_len(&self) -> der::Result<der::Length> {
         let inner_len = self.val.encoded_len()?;
@@ -1517,15 +1355,6 @@ impl<T: Encode> Encode for ExplicitTaggedValue<T> {
     }
 }
 
-/// Root of Trust ASN.1 structure
-/// ```asn1
-///  * RootOfTrust ::= SEQUENCE {
-///  *     verifiedBootKey            OCTET_STRING,
-///  *     deviceLocked               BOOLEAN,
-///  *     verifiedBootState          VerifiedBootState,
-///  *     verifiedBootHash           OCTET_STRING,
-///  * }
-/// ```
 #[derive(Debug, Clone, Sequence)]
 struct RootOfTrust<'a> {
     #[asn1(type = "OCTET STRING")]
@@ -1539,8 +1368,6 @@ struct RootOfTrust<'a> {
 impl<'a> From<&'a keymint::BootInfo> for RootOfTrust<'a> {
     fn from(info: &keymint::BootInfo) -> RootOfTrust<'_> {
         let verified_boot_key: &[u8] = if info.verified_boot_key.is_empty() {
-            // If an empty verified boot key was passed by the boot loader, set the verified boot
-            // key in the attestation to all zeroes.
             &EMPTY_BOOT_KEY[..]
         } else {
             &info.verified_boot_key[..]
@@ -1554,15 +1381,6 @@ impl<'a> From<&'a keymint::BootInfo> for RootOfTrust<'a> {
     }
 }
 
-/// Verified Boot State as ASN.1 ENUMERATED type.
-///```asn1
-///  * VerifiedBootState ::= ENUMERATED {
-///  *     Verified                   (0),
-///  *     SelfSigned                 (1),
-///  *     Unverified                 (2),
-///  *     Failed                     (3),
-///  * }
-///```
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, Enumerated)]
 enum VerifiedBootState {
@@ -1646,35 +1464,35 @@ mod tests {
         };
         let got = ext.to_der().unwrap();
         let want = concat!(
-            "3071",   // SEQUENCE
-            "0202",   // INTEGER len 2
-            "012c",   // 300
-            "0a01",   // ENUM len 1
-            "01",     // 1 (TrustedEnvironment)
-            "0202",   // INTEGER len 2
-            "012c",   // 300
-            "0a01",   // ENUM len 1
-            "01",     // 1 (TrustedEnvironement)
-            "0403",   // BYTE STRING len 3
-            "616263", // b"abc"
-            "0403",   // BYTE STRING len 3
-            "787878", // b"xxx"
-            "3000",   // SEQUENCE len 0
-            "3055",   // SEQUENCE len 55
-            "a203",   // EXPLICIT [2]
-            "0201",   // INTEGER len 1
-            "03",     // 3 (Algorithm::Ec)
+            "3071",
+            "0202",
+            "012c",
+            "0a01",
+            "01",
+            "0202",
+            "012c",
+            "0a01",
+            "01",
+            "0403",
+            "616263",
+            "0403",
+            "787878",
+            "3000",
+            "3055",
+            "a203",
+            "0201",
+            "03",
             "bf8540",
-            "4c",   // EXPLICIT [704] len 0x4c
-            "304a", // SEQUENCE len x4a
-            "0420", // OCTET STRING len 32
+            "4c",
+            "304a",
+            "0420",
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            "0101", // BOOLEAN len 1
-            "00",   // false
-            "0a01", // ENUMERATED len 1
-            "02",   // Unverified(2)
-            "0420", // OCTET STRING len 32
+            "0101",
+            "00",
+            "0a01",
+            "02",
+            "0420",
             "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
         );
@@ -1735,32 +1553,32 @@ mod tests {
         .unwrap();
         let got = authorization_list.to_der().unwrap();
         let want: &str = concat!(
-            "307b", // SEQUENCE len 123
-            "a203", // EXPLICIT [2]
-            "0201", // INTEGER len 1
-            "03",   // 3 (Algorithm::Ec)
+            "307b",
+            "a203",
+            "0201",
+            "03",
             "bf8540",
-            "4c",   // EXPLICIT [704] len 0x4c
-            "304a", // SEQUENCE len x4a
-            "0420", // OCTET STRING len 32
+            "4c",
+            "304a",
+            "0420",
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            "0101", // BOOLEAN len 1
-            "00",   // false
-            "0a01", // ENUMERATED len 1
-            "02",   // Unverified(2)
-            "0420", // OCTET STRING len 32
+            "0101",
+            "00",
+            "0a01",
+            "02",
+            "0420",
             "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             "bf8554",
-            "22",   // EXPLICIT [724] len 34
-            "0420", // OCTET STRING len 32
+            "22",
+            "0420",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         );
-        // encode
+
         assert_eq!(hex::encode(&got), want);
-        // decode from encoded
+
         let mut parsed = AuthorizationList::from_der(got.as_slice()).unwrap();
         parsed.encode_sid = false;
         assert_eq!(parsed, authorization_list);
@@ -1768,7 +1586,6 @@ mod tests {
 
     #[test]
     fn test_authorization_list_user_secure_id_encode() {
-        // Create an authorization list that includes multiple values for SecureUserId.
         let authorization_list = AuthorizationList::new(
             &[
                 KeyParam::Algorithm(keymint::Algorithm::Ec),
@@ -1789,53 +1606,52 @@ mod tests {
         )
         .unwrap();
         let got = authorization_list.to_der().unwrap();
-        // The `SecureUserId` values are *not* included in the generated output.
+
         let want: &str = concat!(
-            "3055", // SEQUENCE len 55
-            "a203", // EXPLICIT [2]
-            "0201", // INTEGER len 1
-            "03",   // 3 (Algorithm::Ec)
+            "3055",
+            "a203",
+            "0201",
+            "03",
             "bf8540",
-            "4c",   // EXPLICIT [704] len 0x4c
-            "304a", // SEQUENCE len x4a
-            "0420", // OCTET STRING len 32
+            "4c",
+            "304a",
+            "0420",
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            "0101", // BOOLEAN len 1
-            "00",   // false
-            "0a01", // ENUMERATED len 1
-            "02",   // Unverified(2)
-            "0420", // OCTET STRING len 32
+            "0101",
+            "00",
+            "0a01",
+            "02",
+            "0420",
             "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
         );
-        // encode
+
         assert_eq!(hex::encode(got), want);
     }
 
     #[test]
     fn test_authorization_list_user_secure_id_decode() {
-        // Create a DER-encoded `AuthorizationList` that includes a `UserSecureId` value.
         let input = hex::decode(concat!(
-            "305c",   // SEQUENCE
-            "a203",   // EXPLICIT [2] len 3
-            "0201",   // INTEGER len 1
-            "03",     // 3 (Algorithm::Ec)
-            "bf8376", // EXPLICIT [502]
-            "03",     // len 3
-            "0201",   // INTEGER len 1
-            "02",     // 2
-            "bf8540", // EXPLICIT [704]
-            "4c",     // len 0x4c
-            "304a",   // SEQUENCE len x4a
-            "0420",   // OCTET STRING len 32
+            "305c",
+            "a203",
+            "0201",
+            "03",
+            "bf8376",
+            "03",
+            "0201",
+            "02",
+            "bf8540",
+            "4c",
+            "304a",
+            "0420",
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            "0101", // BOOLEAN len 1
-            "00",   // false
-            "0a01", // ENUMERATED len 1
-            "02",   // Unverified(2)
-            "0420", // OCTET STRING len 32
+            "0101",
+            "00",
+            "0a01",
+            "02",
+            "0420",
             "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
         ))
@@ -1924,7 +1740,7 @@ mod tests {
             &[
                 KeyParam::Digest(Digest::None),
                 KeyParam::Digest(Digest::Sha1),
-                KeyParam::Digest(Digest::Sha1), // duplicate value
+                KeyParam::Digest(Digest::Sha1),
             ],
             &[],
             None,
@@ -1969,42 +1785,15 @@ mod tests {
     fn test_decode_tag_from_bytes() {
         use der::Reader;
         let tests = [
-            (
-                "a2", // context-specific constructed tag=2
-                Ok(Some(Tag::Algorithm)),
-            ),
-            (
-                "be", // context-specific constructed tag=30 (not a KeyMint tag value)
-                Err(der::ErrorKind::TagNumberInvalid.into()),
-            ),
-            (
-                "bf1f", // context-specific constructed tag=31 (not a KeyMint tag value)
-                Err(der::ErrorKind::TagNumberInvalid.into()),
-            ),
-            (
-                "bf8377", // context-specific constructed tag=503=0x1F7
-                Ok(Some(Tag::NoAuthRequired)),
-            ),
-            (
-                "9f8377", // context-specific *primitive* tag=503=0x1F7
-                Err(der::ErrorKind::TagNumberInvalid.into()),
-            ),
-            (
-                "7f8377", // *application* constructed tag=503=0x1F7
-                Err(der::ErrorKind::TagNumberInvalid.into()),
-            ),
-            (
-                "bfc000", // context-specific constructed tag=16384=0x4000
-                Err(der::ErrorKind::TagNumberInvalid.into()),
-            ),
-            (
-                "bf8148", // context-specific constructed tag=200=0xC8
-                Ok(Some(Tag::RsaPublicExponent)),
-            ),
-            (
-                "68", // application constructed tag=16
-                Err(der::ErrorKind::TagNumberInvalid.into()),
-            ),
+            ("a2", Ok(Some(Tag::Algorithm))),
+            ("be", Err(der::ErrorKind::TagNumberInvalid.into())),
+            ("bf1f", Err(der::ErrorKind::TagNumberInvalid.into())),
+            ("bf8377", Ok(Some(Tag::NoAuthRequired))),
+            ("9f8377", Err(der::ErrorKind::TagNumberInvalid.into())),
+            ("7f8377", Err(der::ErrorKind::TagNumberInvalid.into())),
+            ("bfc000", Err(der::ErrorKind::TagNumberInvalid.into())),
+            ("bf8148", Ok(Some(Tag::RsaPublicExponent))),
+            ("68", Err(der::ErrorKind::TagNumberInvalid.into())),
         ];
         for (input_hex, want) in tests {
             let input = hex::decode(input_hex).unwrap();

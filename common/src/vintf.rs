@@ -222,8 +222,6 @@ impl<'a> ManifestMerger<'a> {
 
             let hal = parse_aidl_hal(hal, meta_version, source)?;
             if hal.is_override {
-                // libvintf represents every AIDL version with the same fake major version, so an
-                // override removes every prior declaration for this package before adding itself.
                 self.instances.clear();
             } else if source_meta_version >= META_VERSION_NO_HAL_INTERFACE_INSTANCE {
                 if let Some(conflict) = hal
@@ -433,8 +431,7 @@ fn resolve_device_manifest(
         if let Some(odm) = odm {
             merger.merge_loaded(odm)?;
         }
-        // AOSP loads ODM fragments whenever a vendor or ODM base manifest exists, even when the
-        // ODM base itself is absent.
+
         merge_partition_fragments(
             root,
             read_property,

@@ -76,8 +76,6 @@ type IpcThreadStateSelf = unsafe extern "C" fn() -> *mut c_void;
 type IpcThreadStateGetCallingSid = unsafe extern "C" fn(*const c_void) -> *const c_char;
 type IpcThreadStateGetLastTransactionBinderFlags = unsafe extern "C" fn(*const c_void) -> u32;
 
-// Exact AOSP Android 12/13 libs/binder/ndk/parcel_internal.h layout.
-// Android 14+ exposes AParcel_viewPlatformParcel and never uses this fallback.
 #[repr(C)]
 struct LegacyAParcel {
     binder: *const c_void,
@@ -537,7 +535,6 @@ unsafe fn find_symbol<T: Copy>(handle: usize, name: &'static [u8]) -> Option<T> 
 
 impl NativeBinderApi {
     unsafe fn load() -> Result<Self> {
-        // These handles intentionally stay open for the process lifetime.
         let binder_ndk = open_library(b"libbinder_ndk.so\0")?;
         let binder = open_library(b"libbinder.so\0")?;
 

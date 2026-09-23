@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Functionality related to elliptic curve support.
-
 use super::{CurveType, KeyMaterial, OpaqueOr};
 use crate::{der_err, km_err, try_to_vec, vec_try, Error, FallibleAllocExt};
 use der::{asn1::BitStringRef, AnyRef, Decode, Encode, Sequence};
@@ -22,66 +20,51 @@ use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo, SubjectPublicKeyInfoRef};
 use std::vec::Vec;
 use zeroize::ZeroizeOnDrop;
 
-/// Size (in bytes) of a curve 25519 private key.
 pub const CURVE25519_PRIV_KEY_LEN: usize = 32;
 
-/// Maximum message size for Ed25519 Signing operations.
 pub const MAX_ED25519_MSG_SIZE: usize = 16 * 1024;
 
-/// Marker value used to indicate that a public key is for RKP test mode.
 pub const RKP_TEST_KEY_CBOR_MARKER: i64 = -70000;
 
-/// Initial byte of SEC1 public key encoding that indicates an uncompressed point.
 pub const SEC1_UNCOMPRESSED_PREFIX: u8 = 0x04;
 
-/// OID value for general-use NIST EC keys held in PKCS#8 and X.509; see RFC 5480 s2.1.1.
 pub const X509_NIST_OID: pkcs8::ObjectIdentifier =
     pkcs8::ObjectIdentifier::new_unwrap("1.2.840.10045.2.1");
 
-/// OID value for Ed25519 keys held in PKCS#8 and X.509; see RFC 8410 s3.
 pub const X509_ED25519_OID: pkcs8::ObjectIdentifier =
     pkcs8::ObjectIdentifier::new_unwrap("1.3.101.112");
 
-/// OID value for X25519 keys held in PKCS#8 and X.509; see RFC 8410 s3.
 pub const X509_X25519_OID: pkcs8::ObjectIdentifier =
     pkcs8::ObjectIdentifier::new_unwrap("1.3.101.110");
 
-/// OID value for PKCS#1 signature with SHA-256 and ECDSA, see RFC 5758 s3.2.
 pub const ECDSA_SHA256_SIGNATURE_OID: pkcs8::ObjectIdentifier =
     pkcs8::ObjectIdentifier::new_unwrap("1.2.840.10045.4.3.2");
 
-/// OID value in `AlgorithmIdentifier.parameters` for P-224; see RFC 5480 s2.1.1.1.
 pub const ALGO_PARAM_P224_OID: pkcs8::ObjectIdentifier =
     pkcs8::ObjectIdentifier::new_unwrap("1.3.132.0.33");
 
-/// OID value in `AlgorithmIdentifier.parameters` for P-256; see RFC 5480 s2.1.1.1.
 pub const ALGO_PARAM_P256_OID: pkcs8::ObjectIdentifier =
     pkcs8::ObjectIdentifier::new_unwrap("1.2.840.10045.3.1.7");
 
-/// OID value in `AlgorithmIdentifier.parameters` for P-384; see RFC 5480 s2.1.1.1.
 pub const ALGO_PARAM_P384_OID: pkcs8::ObjectIdentifier =
     pkcs8::ObjectIdentifier::new_unwrap("1.3.132.0.34");
 
-/// OID value in `AlgorithmIdentifier.parameters` for P-521; see RFC 5480 s2.1.1.1.
 pub const ALGO_PARAM_P521_OID: pkcs8::ObjectIdentifier =
     pkcs8::ObjectIdentifier::new_unwrap("1.3.132.0.35");
 
-/// Subset of `EcCurve` values that are NIST curves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(i32)]
 pub enum NistCurve {
-    /// P-224
     P224 = 0,
-    /// P-256
+
     P256 = 1,
-    /// P-384
+
     P384 = 2,
-    /// P-521
+
     P521 = 3,
 }
 
 impl NistCurve {
-    /// Curve coordinate size in bytes.
     pub fn coord_len(&self) -> usize {
         match self {
             NistCurve::P224 => 28,
@@ -117,46 +100,6 @@ impl TryFrom<EcCurve> for NistCurve {
 }
 
 impl OpaqueOr<Key> {
-    /// Encode into `buf` the public key information as an ASN.1 DER encodable
-    /// `SubjectPublicKeyInfo`, as described in RFC 5280 section 4.1.
-    ///
-    /// ```asn1
-    /// SubjectPublicKeyInfo  ::=  SEQUENCE  {
-    ///    algorithm            AlgorithmIdentifier,
-    ///    subjectPublicKey     BIT STRING  }
-    ///
-    /// AlgorithmIdentifier  ::=  SEQUENCE  {
-    ///    algorithm               OBJECT IDENTIFIER,
-    ///    parameters              ANY DEFINED BY algorithm OPTIONAL  }
-    /// ```
-    ///
-    /// For NIST curve EC keys, the contents are described in RFC 5480 section 2.1.
-    /// - The `AlgorithmIdentifier` has an `algorithm` OID of 1.2.840.10045.2.1.
-    /// - The `AlgorithmIdentifier` has `parameters` that hold an OID identifying the curve, here
-    ///   one of:
-    ///    - P-224: 1.3.132.0.33
-    ///    - P-256: 1.2.840.10045.3.1.7
-    ///    - P-384: 1.3.132.0.34
-    ///    - P-521: 1.3.132.0.35
-    /// - The `subjectPublicKey` bit string holds an ASN.1 DER-encoded `OCTET STRING` that contains
-    ///   a SEC-1 encoded public key.  The first byte indicates the format:
-    ///    - 0x04: uncompressed, followed by x || y coordinates
-    ///    - 0x03: compressed, followed by x coordinate (and with a odd y coordinate)
-    ///    - 0x02: compressed, followed by x coordinate (and with a even y coordinate)
-    ///
-    /// For Ed25519 keys, the contents of the `AlgorithmIdentifier` are described in RFC 8410
-    /// section 3.
-    /// - The `algorithm` has an OID of 1.3.101.112.
-    /// - The `parameters` are absent.
-    ///
-    /// The `subjectPublicKey` holds the raw key bytes.
-    ///
-    /// For X25519 keys, the contents of the `AlgorithmIdentifier` are described in RFC 8410
-    /// section 3.
-    /// - The `algorithm` has an OID of 1.3.101.110.
-    /// - The `parameters` are absent.
-    ///
-    /// The `subjectPublicKey` holds the raw key bytes.
     pub fn subject_public_key_info<'a>(
         &'a self,
         buf: &'a mut Vec<u8>,
@@ -185,7 +128,6 @@ impl OpaqueOr<Key> {
         })
     }
 
-    /// Generate a `COSE_Key` for the public key.
     pub fn public_cose_key(
         &self,
         ec: &dyn super::Ec,
@@ -207,8 +149,6 @@ impl OpaqueOr<Key> {
                 let (x, y) = coordinates_from_pub_key(pub_key, nist_curve)?;
                 let cose_nist_curve = match nist_curve {
                     NistCurve::P224 => {
-                        // P-224 is not supported by COSE: there is no value in the COSE Elliptic
-                        // Curve registry for it.
                         return Err(km_err!(Unimplemented, "no COSE support for P-224"));
                     }
                     NistCurve::P256 => coset::iana::EllipticCurve::P_256,
@@ -249,33 +189,28 @@ impl OpaqueOr<Key> {
     }
 }
 
-/// Elliptic curve private key material.
 #[derive(Clone, PartialEq, Eq)]
 pub enum Key {
-    /// P-224 private key.
     P224(NistKey),
-    /// P-256 private key.
+
     P256(NistKey),
-    /// P-384 private key.
+
     P384(NistKey),
-    /// P-521 private key.
+
     P521(NistKey),
-    /// Ed25519 private key.
+
     Ed25519(Ed25519Key),
-    /// X25519 private key.
+
     X25519(X25519Key),
 }
 
-/// Indication of the purpose for a COSE key.
 pub enum CoseKeyPurpose {
-    /// ECDH key agreement.
     Agree,
-    /// ECDSA signature generation.
+
     Sign,
 }
 
 impl Key {
-    /// Return the private key material.
     pub fn private_key_bytes(&self) -> &[u8] {
         match self {
             Key::P224(key) => &key.0,
@@ -287,7 +222,6 @@ impl Key {
         }
     }
 
-    /// Return the type of curve.
     pub fn curve_type(&self) -> CurveType {
         match self {
             Key::P224(_) | Key::P256(_) | Key::P384(_) | Key::P521(_) => CurveType::Nist,
@@ -296,7 +230,6 @@ impl Key {
         }
     }
 
-    /// Return the curve.
     pub fn curve(&self) -> EcCurve {
         match self {
             Key::P224(_) => EcCurve::P224,
@@ -309,22 +242,9 @@ impl Key {
     }
 }
 
-/// A NIST EC key, in the form of an ASN.1 DER encoding of a `ECPrivateKey` structure,
-/// as specified by RFC 5915 section 3:
-///
-/// ```asn1
-/// ECPrivateKey ::= SEQUENCE {
-///    version        INTEGER { ecPrivkeyVer1(1) } (ecPrivkeyVer1),
-///    privateKey     OCTET STRING,
-///    parameters [0] ECParameters {{ NamedCurve }} OPTIONAL,
-///    publicKey  [1] BIT STRING OPTIONAL
-/// }
-/// ```
 #[derive(Clone, PartialEq, Eq, ZeroizeOnDrop)]
 pub struct NistKey(pub Vec<u8>);
 
-/// Helper function to return the (x,y) coordinates, given the public key as a SEC-1 encoded
-/// uncompressed point. 0x04: uncompressed, followed by x || y coordinates.
 pub fn coordinates_from_pub_key(
     pub_key: Vec<u8>,
     curve: NistCurve,
@@ -352,15 +272,12 @@ pub fn coordinates_from_pub_key(
     ))
 }
 
-/// An Ed25519 private key.
 #[derive(Clone, PartialEq, Eq, ZeroizeOnDrop)]
 pub struct Ed25519Key(pub [u8; CURVE25519_PRIV_KEY_LEN]);
 
-/// An X25519 private key.
 #[derive(Clone, PartialEq, Eq, ZeroizeOnDrop)]
 pub struct X25519Key(pub [u8; CURVE25519_PRIV_KEY_LEN]);
 
-/// Return the OID used in an `AlgorithmIdentifier` for signatures produced by this curve.
 pub fn curve_to_signing_oid(curve: EcCurve) -> pkcs8::ObjectIdentifier {
     match curve {
         EcCurve::P224 | EcCurve::P256 | EcCurve::P384 | EcCurve::P521 => ECDSA_SHA256_SIGNATURE_OID,
@@ -368,7 +285,6 @@ pub fn curve_to_signing_oid(curve: EcCurve) -> pkcs8::ObjectIdentifier {
     }
 }
 
-/// Return the key size for a curve.
 pub fn curve_to_key_size(curve: EcCurve) -> KeySizeInBits {
     KeySizeInBits(match curve {
         EcCurve::P224 => 224,
@@ -379,7 +295,6 @@ pub fn curve_to_key_size(curve: EcCurve) -> KeySizeInBits {
     })
 }
 
-/// Import an NIST EC key in SEC1 ECPrivateKey format.
 pub fn import_sec1_private_key(data: &[u8]) -> Result<KeyMaterial, Error> {
     let ec_key = sec1::EcPrivateKey::from_der(data)
         .map_err(|e| der_err!(e, "failed to parse ECPrivateKey"))?;
@@ -402,14 +317,12 @@ pub fn import_sec1_private_key(data: &[u8]) -> Result<KeyMaterial, Error> {
     import_pkcs8_key_impl(&algorithm, data)
 }
 
-/// Import an EC key in PKCS#8 format.
 pub fn import_pkcs8_key(data: &[u8]) -> Result<KeyMaterial, Error> {
     let key_info = pkcs8::PrivateKeyInfoRef::try_from(data)
         .map_err(|_| km_err!(InvalidArgument, "failed to parse PKCS#8 EC key"))?;
     import_pkcs8_key_impl(&key_info.algorithm, key_info.private_key.as_bytes())
 }
 
-/// Import EC key material described by PKCS#8 algorithm metadata.
 fn import_pkcs8_key_impl(
     algorithm: &AlgorithmIdentifier<AnyRef<'_>>,
     private_key: &[u8],
@@ -457,9 +370,6 @@ fn import_pkcs8_key_impl(
                     "unexpected PKCS#8 parameters for Ed25519 import"
                 ))
             } else {
-                // For Ed25519 the PKCS#8 `privateKey` field holds a `CurvePrivateKey`
-                // (RFC 8410 s7) that is an OCTET STRING holding the raw key.  As this is DER,
-                // this is just a 2 byte prefix (0x04 = OCTET STRING, 0x20 = length of raw key).
                 if private_key.len() != 2 + CURVE25519_PRIV_KEY_LEN
                     || private_key[0] != 0x04
                     || private_key[1] != 0x20
@@ -479,9 +389,6 @@ fn import_pkcs8_key_impl(
                     "unexpected PKCS#8 parameters for X25519 import",
                 ))
             } else {
-                // For X25519 the PKCS#8 `privateKey` field holds a `CurvePrivateKey`
-                // (RFC 8410 s7) that is an OCTET STRING holding the raw key.  As this is DER,
-                // this is just a 2 byte prefix (0x04 = OCTET STRING, 0x20 = length of raw key).
                 if private_key.len() != 2 + CURVE25519_PRIV_KEY_LEN
                     || private_key[0] != 0x04
                     || private_key[1] != 0x20
@@ -535,7 +442,6 @@ fn normalize_nist_private_key(
     }
 }
 
-/// Import a 32-byte raw Ed25519 key.
 pub fn import_raw_ed25519_key(data: &[u8]) -> Result<KeyMaterial, Error> {
     let key = data.try_into().map_err(|_e| {
         km_err!(
@@ -551,7 +457,6 @@ pub fn import_raw_ed25519_key(data: &[u8]) -> Result<KeyMaterial, Error> {
     ))
 }
 
-/// Import a 32-byte raw X25519 key.
 pub fn import_raw_x25519_key(data: &[u8]) -> Result<KeyMaterial, Error> {
     let key = data.try_into().map_err(|_e| {
         km_err!(
@@ -567,16 +472,12 @@ pub fn import_raw_x25519_key(data: &[u8]) -> Result<KeyMaterial, Error> {
     ))
 }
 
-/// Convert a signature as emitted from the `Ec` trait into the form needed for
-/// a `COSE_Sign1`.
 pub fn to_cose_signature(curve: EcCurve, sig: Vec<u8>) -> Result<Vec<u8>, Error> {
     match curve {
         EcCurve::P224 | EcCurve::P256 | EcCurve::P384 | EcCurve::P521 => {
-            // NIST curve signatures are emitted as a DER-encoded `SEQUENCE`.
             let der_sig = NistSignature::from_der(&sig)
                 .map_err(|e| km_err!(EncodingError, "failed to parse DER signature: {:?}", e))?;
-            // COSE expects signature of (r||s) with each value left-padded with zeros to coordinate
-            // size.
+
             let nist_curve = NistCurve::try_from(curve)?;
             let l = nist_curve.coord_len();
             let mut sig = vec_try![0; 2 * l]?;
@@ -588,18 +489,13 @@ pub fn to_cose_signature(curve: EcCurve, sig: Vec<u8>) -> Result<Vec<u8>, Error>
             sig[s_offset..s_offset + s.len()].copy_from_slice(s);
             Ok(sig)
         }
-        EcCurve::Curve25519 => {
-            // Ed25519 signatures can be used as-is (RFC 8410 section 6)
-            Ok(sig)
-        }
+        EcCurve::Curve25519 => Ok(sig),
     }
 }
 
-/// Convert a signature as used in a `COSE_Sign1` into the form needed for the `Ec` trait.
 pub fn from_cose_signature(curve: EcCurve, sig: &[u8]) -> Result<Vec<u8>, Error> {
     match curve {
         EcCurve::P224 | EcCurve::P256 | EcCurve::P384 | EcCurve::P521 => {
-            // COSE signatures are (r||s) with each value left-padded with zeros to coordinate size.
             let nist_curve = NistCurve::try_from(curve)?;
             let l = nist_curve.coord_len();
             if sig.len() != 2 * l {
@@ -611,7 +507,6 @@ pub fn from_cose_signature(curve: EcCurve, sig: &[u8]) -> Result<Vec<u8>, Error>
                 ));
             }
 
-            // NIST curve signatures need to be emitted as a DER-encoded `SEQUENCE`.
             let der_sig = NistSignature {
                 r: der::asn1::UintRef::new(&sig[..l])
                     .map_err(|e| km_err!(EncodingError, "failed to build INTEGER: {:?}", e))?,
@@ -626,20 +521,10 @@ pub fn from_cose_signature(curve: EcCurve, sig: &[u8]) -> Result<Vec<u8>, Error>
                 )
             })
         }
-        EcCurve::Curve25519 => {
-            // Ed25519 signatures can be used as-is (RFC 8410 section 6)
-            try_to_vec(sig)
-        }
+        EcCurve::Curve25519 => try_to_vec(sig),
     }
 }
 
-/// DER-encoded signature from a NIST curve (RFC 3279 section 2.2.3):
-/// ```asn1
-/// Ecdsa-Sig-Value  ::=  SEQUENCE  {
-///      r     INTEGER,
-///      s     INTEGER
-/// }
-/// ```
 #[derive(Sequence)]
 struct NistSignature<'a> {
     r: der::asn1::UintRef<'a>,
@@ -666,13 +551,13 @@ mod tests {
     #[test]
     fn test_longer_sig_transmute() {
         let nist_sig_data = hex::decode(concat!(
-            "30", // SEQUENCE
-            "45", // len
-            "02", // INTEGER
-            "20", // len = 32
+            "30",
+            "45",
+            "02",
+            "20",
             "01b309d5eeffa5d550bde27630f9fc7f08492e4617bc158da08b913414cf675b",
-            "02", // INTEGER
-            "21", // len = 33 (high bit set so leading zero needed)
+            "02",
+            "21",
             "00fcdca2e77d036c33fa78f4a892b98569358d83c047a7d8a74ce6fe12fbf919c6"
         ))
         .unwrap();
@@ -691,13 +576,13 @@ mod tests {
     #[test]
     fn test_short_sig_transmute() {
         let nist_sig_data = hex::decode(concat!(
-            "30", // SEQUENCE
-            "43", // len x44
-            "02", // INTEGER
-            "1e", // len = 30
+            "30",
+            "43",
+            "02",
+            "1e",
             "09d5eeffa5d550bde27630f9fc7f08492e4617bc158da08b913414cf675b",
-            "02", // INTEGER
-            "21", // len = 33 (high bit set so leading zero needed)
+            "02",
+            "21",
             "00fcdca2e77d036c33fa78f4a892b98569358d83c047a7d8a74ce6fe12fbf919c6"
         ))
         .unwrap();
@@ -715,22 +600,18 @@ mod tests {
 
     #[test]
     fn test_sec1_ec_import() {
-        // Key data created with:
-        // ```
-        // openssl ecparam -name prime256v1 -genkey -noout -out private-key.pem
-        // ```
         let key_data = hex::decode(concat!(
-            "3077",   // SEQUENCE len x77 (ECPrivateKey)
-            "020101", // INTEGER 1 = (ecPrivkeyVer1)
-            "0420",   // OCTET STRING len x20 (privateKey)
+            "3077",
+            "020101",
+            "0420",
             "a6a30ca3dc87b58763736400e7e86260",
             "9e8311f41e6b89888c33753218168517",
-            "a00a",             // [0] len x0a (parameters)
-            "0608",             // OBJECT IDENTIFIER len 8 (NamedCurve)
-            "2a8648ce3d030107", // 1.2.840.10045.3.1.7=secp256r1
-            "a144",             // [1] len x44 (publicKey)
-            "0342",             // BIT STRING len x42
-            "00",               // no pad bits
+            "a00a",
+            "0608",
+            "2a8648ce3d030107",
+            "a144",
+            "0342",
+            "00",
             "0481e4ce20d8be3dd40b940b3a3ba3e8",
             "cf5a3f2156eceb4debb8fce83cbe4a48",
             "bd576a03eebf77d329a438fcdc509f37",

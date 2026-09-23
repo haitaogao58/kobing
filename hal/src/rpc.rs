@@ -12,27 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! RemotelyProvisionedComponent HAL device implementation.
-
 use super::{ChannelHalService, SerializedChannel};
 use crate::binder;
 use crate::hal::{rkp, Innto};
 use kmr_wire::*;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-/// `IRemotelyProvisionedComponent` implementation which converts all method invocations to
-/// serialized requests that are sent down the associated channel.
 pub struct Device<T: SerializedChannel + 'static> {
     channel: Arc<Mutex<T>>,
 }
 
 impl<T: SerializedChannel + 'static> Device<T> {
-    /// Construct a new instance that uses the provided channel.
     pub fn new(channel: Arc<Mutex<T>>) -> Self {
         Self { channel }
     }
 
-    /// Create a new instance wrapped in a proxy object.
     pub fn new_as_binder(
         channel: Arc<Mutex<T>>,
     ) -> binder::Strong<dyn rkp::IRemotelyProvisionedComponent::IRemotelyProvisionedComponent> {
@@ -64,7 +58,9 @@ impl<T: SerializedChannel> rkp::IRemotelyProvisionedComponent::IRemotelyProvisio
         macedPublicKey: &mut rkp::MacedPublicKey::MacedPublicKey,
     ) -> binder::Result<Vec<u8>> {
         let rsp: GenerateEcdsaP256KeyPairResponse =
-            self.execute(GenerateEcdsaP256KeyPairRequest { test_mode: testMode })?;
+            self.execute(GenerateEcdsaP256KeyPairRequest {
+                test_mode: testMode,
+            })?;
         *macedPublicKey = rsp.maced_public_key.innto();
         Ok(rsp.ret)
     }

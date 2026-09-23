@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Provide the [`KeyMintDevice`] wrapper for operating directly on a KeyMint device.
-
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex, OnceLock, RwLock,
@@ -68,16 +66,12 @@ use log::{error, info, warn};
 use regex::Regex;
 use rsbinder::{ExceptionCode, Interface, Status, Strong};
 
-// The OS version property is of form "12" or "12.1" or "12.1.3".
 const OS_VERSION_REGEX: &str = r"^(?P<major>\d{1,2})(\.(?P<minor>\d{1,2}))?(\.(?P<sub>\d{1,2}))?$";
 
-// The patchlevel properties are of form "YYYY-MM-DD".
 const PATCHLEVEL_REGEX: &str = r"^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})$";
 
-// Just use [`String`] for errors here.
 type HalInfoError = String;
 
-/// Retrieve a numeric value from a possible match.
 fn extract_u32(value: Option<regex::Match>) -> std::result::Result<u32, HalInfoError> {
     match value {
         Some(m) => {
@@ -91,7 +85,6 @@ fn extract_u32(value: Option<regex::Match>) -> std::result::Result<u32, HalInfoE
     }
 }
 
-/// Extract a patchlevel in form YYYYMM from a "YYYY-MM-DD" property value.
 fn extract_truncated_patchlevel(prop_value: &str) -> std::result::Result<u32, HalInfoError> {
     let patchlevel_regex = Regex::new(PATCHLEVEL_REGEX)
         .map_err(|e| format!("failed to compile patchlevel regexp: {e:?}"))?;
@@ -104,11 +97,10 @@ fn extract_truncated_patchlevel(prop_value: &str) -> std::result::Result<u32, Ha
     if !(1..=12).contains(&month) {
         return Err(format!("month out of range: {month}"));
     }
-    // no day
+
     Ok(year * 100 + month)
 }
 
-/// Extract a patchlevel in form YYYYMMDD from a "YYYY-MM-DD" property value.
 pub(crate) fn extract_patchlevel(prop_value: &str) -> std::result::Result<u32, HalInfoError> {
     let patchlevel_regex = Regex::new(PATCHLEVEL_REGEX)
         .map_err(|e| format!("failed to compile patchlevel regexp: {e:?}"))?;
@@ -128,14 +120,12 @@ pub(crate) fn extract_patchlevel(prop_value: &str) -> std::result::Result<u32, H
     Ok(year * 10000 + month * 100 + day)
 }
 
-/// Extract the boot patchlevel as either its raw wire value or YYYYMMDD.
 pub(crate) fn extract_boot_patchlevel(prop_value: &str) -> std::result::Result<u32, HalInfoError> {
     prop_value
         .parse::<u32>()
         .or_else(|_| extract_patchlevel(prop_value))
 }
 
-/// Generate HAL information from property values.
 fn populate_hal_info_from(
     os_version_prop: &str,
     os_patchlevel_prop: &str,
@@ -158,15 +148,6 @@ fn populate_hal_info_from(
     })
 }
 
-/// Wrapper for operating directly on a KeyMint device.
-/// These methods often mirror methods in [`crate::security_level`]. However
-/// the functions in [`crate::security_level`] make assumptions that hold, and has side effects
-/// that make sense, only if called by an external client through binder.
-/// In addition we are trying to maintain a separation between interface services
-/// so that the architecture is compatible with a future move to multiple thread pools.
-/// So the simplest approach today is to write new implementations of them for internal use.
-/// Because these methods run very early, we don't even try to cooperate with
-/// the operation slot database; we assume there will be plenty of slots.
 pub struct KeyMintDevice {
     km_dev: KeyMintWrapper,
     version: i32,
@@ -175,22 +156,20 @@ pub struct KeyMintDevice {
 }
 
 impl KeyMintDevice {
-    /// Version number of KeyMasterDevice@V4_0
     pub const KEY_MASTER_V4_0: i32 = 40;
-    /// Version number of KeyMasterDevice@V4_1
+
     pub const KEY_MASTER_V4_1: i32 = 41;
-    /// Version number of KeyMintDevice@V1
+
     pub const KEY_MINT_V1: i32 = 100;
-    /// Version number of KeyMintDevice@V2
+
     pub const KEY_MINT_V2: i32 = 200;
-    /// Version number of KeyMintDevice@V3
+
     pub const KEY_MINT_V3: i32 = 300;
-    /// Version number of KeyMintDevice@V4
+
     pub const KEY_MINT_V4: i32 = 400;
-    /// Version number of KeyMintDevice@V5
+
     pub const KEY_MINT_V5: i32 = 500;
 
-    /// Get a [`KeyMintDevice`] for the given [`SecurityLevel`]
     pub fn get(security_level: SecurityLevel) -> Result<KeyMintDevice> {
         let km_uuid = RwLock::new(Uuid::from(security_level));
         let wrapper: KeyMintWrapper = KeyMintWrapper::new(security_level)?;
@@ -206,8 +185,6 @@ impl KeyMintDevice {
         })
     }
 
-    /// Get a [`KeyMintDevice`] for the given [`SecurityLevel`], return
-    /// [`None`] if the error `HARDWARE_TYPE_UNAVAILABLE` is returned
     pub fn get_or_none(security_level: SecurityLevel) -> Result<Option<KeyMintDevice>> {
         KeyMintDevice::get(security_level).map(Some).or_else(|e| {
             match e.root_cause().downcast_ref::<Error>() {
@@ -232,19 +209,14 @@ impl KeyMintDevice {
         Ok(())
     }
 
-    /// Returns the version of the underlying KeyMint/KeyMaster device.
     pub fn version(&self) -> i32 {
         self.version
     }
 
-    /// Returns the self advertised security level of the KeyMint device.
-    /// This may differ from the requested security level if the best security level
-    /// on the device is Software.
     pub fn security_level(&self) -> SecurityLevel {
         self.security_level
     }
 
-    /// Create a KM key and store in the database.
     pub fn create_and_store_key<F>(
         &self,
         db: &mut KeystoreDB,
@@ -280,7 +252,6 @@ impl KeyMintDevice {
         Ok(())
     }
 
-    /// Generate a KeyDescriptor for internal-use keys.
     pub fn internal_descriptor(alias: String) -> KeyDescriptor {
         KeyDescriptor {
             domain: Domain::APP,
@@ -290,7 +261,6 @@ impl KeyMintDevice {
         }
     }
 
-    /// Look up an internal-use key in the database given a key descriptor.
     fn lookup_from_desc(
         db: &mut KeystoreDB,
         key_desc: &KeyDescriptor,
@@ -306,7 +276,6 @@ impl KeyMintDevice {
         .context(err!("load_key_entry failed."))
     }
 
-    /// Look up the key in the database, and return None if it is absent.
     fn not_found_is_none(
         lookup: Result<(KeyIdGuard, KeyEntry)>,
     ) -> Result<Option<(KeyIdGuard, KeyEntry)>> {
@@ -319,8 +288,6 @@ impl KeyMintDevice {
         }
     }
 
-    /// This does the lookup and store in separate transactions; caller must
-    /// hold a lock before calling.
     pub fn lookup_or_generate_key<F>(
         &self,
         db: &mut KeystoreDB,
@@ -332,18 +299,10 @@ impl KeyMintDevice {
     where
         F: FnOnce(&[KeyCharacteristics]) -> bool,
     {
-        // We use a separate transaction for the lookup than for the store
-        // - to keep the code simple
-        // - because the caller needs to hold a lock in any case
-        // - because it avoids holding database locks during slow
-        //   KeyMint operations
         let lookup = Self::not_found_is_none(Self::lookup_from_desc(db, key_desc, key_type))
             .context(err!("first lookup failed"))?;
 
         if let Some((key_id_guard, mut key_entry)) = lookup {
-            // If the key is associated with a different km instance
-            // or if there is no blob metadata for some reason the key entry
-            // is considered corrupted and needs to be replaced with a new one.
             let key_blob = key_entry
                 .take_key_blob_info()
                 .and_then(|(key_blob, blob_metadata)| {
@@ -375,9 +334,6 @@ impl KeyMintDevice {
                 if validate_characteristics(&key_characteristics) {
                     return Ok((key_id_guard, key_blob));
                 }
-
-                // If this point is reached the existing key is considered outdated or corrupted
-                // in some way. It will be replaced with a new key below.
             };
         }
 
@@ -399,8 +355,6 @@ impl KeyMintDevice {
             .context(err!("second lookup failed"))
     }
 
-    /// Call the passed closure; if it returns `KEY_REQUIRES_UPGRADE`, call upgradeKey, and
-    /// write the upgraded key to the database.
     fn upgrade_keyblob_if_required_with<'a, T, F>(
         &self,
         db: &mut KeystoreDB,
@@ -438,8 +392,6 @@ impl KeyMintDevice {
         Ok((f_result, returned_blob))
     }
 
-    /// Use the created key in an operation that can be done with
-    /// a call to begin followed by a call to finish.
     pub fn use_key_in_one_step(
         &self,
         db: &mut KeystoreDB,
@@ -1256,16 +1208,16 @@ fn init_keymint_ta(security_level: SecurityLevel, config: &Config) -> Result<Key
     let dev = kmr_ta::device::Implementation {
         keys,
         sign_info: Some(Box::new(crate::keybox::KeyboxManager {})),
-        // HAL populates attestation IDs from properties.
+
         attest_ids: Some(Box::new(crate::att_mgr::AttestationIdMgr {})),
         sdd_mgr,
-        // `BOOTLOADER_ONLY` keys not supported.
+
         bootloader: Box::new(kmr_ta::device::BootloaderDone),
-        // `STORAGE_KEY` keys not supported.
+
         sk_wrapper: None,
-        // `TRUSTED_USER_PRESENCE_REQUIRED` keys not supported
+
         tup: Box::new(kmr_ta::device::TrustedPresenceUnsupported),
-        // No support for converting previous implementation's keyblobs.
+
         legacy_key: None,
         rpc,
     };

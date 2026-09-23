@@ -630,7 +630,6 @@ impl std::str::FromStr for Backend {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            // ponytail: keep old configs booting while the KOBING system-service backend is disabled.
             "injector" => Ok(Backend::Injector),
             "ko_bing" => Ok(Backend::Injector),
             _ => Err(()),
@@ -641,11 +640,9 @@ impl std::str::FromStr for Backend {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct MainConfig {
-    /// Only the injector backend is currently enabled.
     pub backend: Backend,
     pub log_level: String,
-    /// Insecure fallback for devices whose system TEE cannot verify HATs.
-    /// When enabled, KOBING accepts shape-valid HATs without system KeyMint MAC verification.
+
     #[serde(default)]
     pub force_skip_system_biometric_hat_verification: bool,
 }

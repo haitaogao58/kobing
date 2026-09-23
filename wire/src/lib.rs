@@ -12,12 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Types and macros for communication between HAL and TA
-
-// Allow missing docs in this crate as the types here are generally 1:1 with the HAL
-// interface definitions.
-#![allow(missing_docs)]
-
 use coset::TaggedCborSerializable;
 use std::{
     format,
@@ -25,9 +19,8 @@ use std::{
     vec::Vec,
 };
 
-/// Re-export of crate used for CBOR encoding.
 pub use ciborium as cbor;
-/// Re-export of crate used for COSE encoding.
+
 pub use coset;
 
 pub mod keymint;
@@ -41,9 +34,6 @@ pub use types::*;
 #[cfg(test)]
 mod tests;
 
-/// Macro that emits an implementation of `TryFrom<i32>` for an enum type that has `[derive(N)]`
-/// attached to it.  The implementation assumes that `ValueNotRecognized` has a variant with the
-/// same name as the enum.
 #[macro_export]
 macro_rules! try_from_n {
     { $ename:ident } => {
@@ -56,8 +46,6 @@ macro_rules! try_from_n {
     };
 }
 
-/// Function that mimics `vec![<val>; <len>]` but which detects allocation failure with the given
-/// error.
 pub fn vec_try_fill_with_alloc_err<T: Clone, E>(
     elem: T,
     len: usize,
@@ -69,8 +57,6 @@ pub fn vec_try_fill_with_alloc_err<T: Clone, E>(
     Ok(v)
 }
 
-/// Function that mimics `vec![x1, x2, x3, x4]` but which detects allocation failure with the given
-/// error.
 pub fn vec_try4_with_alloc_err<T: Clone, E>(
     x1: T,
     x2: T,
@@ -91,8 +77,6 @@ pub fn vec_try4_with_alloc_err<T: Clone, E>(
     }
 }
 
-/// Function that mimics `vec![x1, x2, x3]` but which detects allocation failure with the given
-/// error.
 pub fn vec_try3_with_alloc_err<T: Clone, E>(
     x1: T,
     x2: T,
@@ -111,7 +95,6 @@ pub fn vec_try3_with_alloc_err<T: Clone, E>(
     }
 }
 
-/// Function that mimics `vec![x1, x2]` but which detects allocation failure with the given error.
 pub fn vec_try2_with_alloc_err<T: Clone, E>(
     x1: T,
     x2: T,
@@ -128,7 +111,6 @@ pub fn vec_try2_with_alloc_err<T: Clone, E>(
     }
 }
 
-/// Function that mimics `vec![x1]` but which detects allocation failure with the given error.
 pub fn vec_try1_with_alloc_err<T: Clone, E>(x1: T, alloc_err: fn() -> E) -> Result<Vec<T>, E> {
     let mut v = std::vec::Vec::new();
     match v.try_reserve(1) {
@@ -140,7 +122,6 @@ pub fn vec_try1_with_alloc_err<T: Clone, E>(x1: T, alloc_err: fn() -> E) -> Resu
     }
 }
 
-/// Macro that mimics `vec!` but which detects allocation failure.
 #[macro_export]
 macro_rules! vec_try {
     { $elem:expr ; $len:expr } => {
@@ -160,31 +141,27 @@ macro_rules! vec_try {
     };
 }
 
-/// Marker structure indicating that the EOF was encountered when reading CBOR data.
 #[derive(Debug)]
 pub struct EndOfFile;
 
-/// Error type for failures in encoding or decoding CBOR types.
 pub enum CborError {
-    /// CBOR decoding failure.
     DecodeFailed(cbor::de::Error<EndOfFile>),
-    /// CBOR encoding failure.
+
     EncodeFailed,
-    /// CBOR input had extra data.
+
     ExtraneousData,
-    /// Integer value outside expected range.
+
     OutOfRangeIntegerValue,
-    /// Integer value that doesn't match expected set of allowed enum values.
+
     NonEnumValue,
-    /// Unexpected CBOR item encountered (got, want).
+
     UnexpectedItem(&'static str, &'static str),
-    /// Value conversion failure.
+
     InvalidValue,
-    /// Allocation failure.
+
     AllocationFailed,
 }
 
-// Can only implement `Into` due to orphan trait rule.
 #[allow(clippy::from_over_into)]
 impl Into<coset::CoseError> for CborError {
     fn into(self) -> coset::CoseError {
@@ -208,7 +185,6 @@ impl Into<coset::CoseError> for CborError {
 
 impl<T> From<cbor::de::Error<T>> for CborError {
     fn from(e: cbor::de::Error<T>) -> Self {
-        // Make sure we use our [`EndOfFile`] marker.
         use cbor::de::Error::{Io, RecursionLimitExceeded, Semantic, Syntax};
         let e = match e {
             Io(_) => Io(EndOfFile),
@@ -275,7 +251,6 @@ impl core::fmt::Debug for CborError {
     }
 }
 
-/// Return an error indicating that an unexpected CBOR type was encountered.
 pub fn cbor_type_error<T>(value: &cbor::value::Value, want: &'static str) -> Result<T, CborError> {
     use cbor::value::Value;
     let got = match value {
@@ -293,8 +268,6 @@ pub fn cbor_type_error<T>(value: &cbor::value::Value, want: &'static str) -> Res
     Err(CborError::UnexpectedItem(got, want))
 }
 
-/// Read a [`cbor::value::Value`] from a byte slice, failing if any extra data remains after the
-/// `Value` has been read.
 pub fn read_to_value(mut slice: &[u8]) -> Result<cbor::value::Value, CborError> {
     let value = cbor::de::from_reader_with_recursion_limit(&mut slice, 16)?;
     if slice.is_empty() {
@@ -304,41 +277,29 @@ pub fn read_to_value(mut slice: &[u8]) -> Result<cbor::value::Value, CborError> 
     }
 }
 
-/// Trait for types that can be converted to/from a [`cbor::value::Value`].
 pub trait AsCborValue: Sized {
-    /// Convert a [`cbor::value::Value`] into an instance of the type.
     fn from_cbor_value(value: cbor::value::Value) -> Result<Self, CborError>;
 
-    /// Convert the object into a [`cbor::value::Value`], consuming it along the way.
     fn to_cbor_value(self) -> Result<cbor::value::Value, CborError>;
 
-    /// Create an object instance from serialized CBOR data in a slice.
     fn from_slice(slice: &[u8]) -> Result<Self, CborError> {
         Self::from_cbor_value(read_to_value(slice)?)
     }
 
-    /// Serialize this object to a vector, consuming it along the way.
     fn into_vec(self) -> Result<Vec<u8>, CborError> {
         let mut data = Vec::new();
         cbor::ser::into_writer(&self.to_cbor_value()?, &mut data)?;
         Ok(data)
     }
 
-    /// Return the name used for this type in a CDDL schema, or `None` if this type does not have a
-    /// simple CDDL name. (For example, type `Vec<i64>` maps to a schema `(+ int)` but doesn't
-    /// have a name.)
     fn cddl_typename() -> Option<String> {
         None
     }
 
-    /// Return the CDDL schema for this type, or None if this type is primitive (e.g. `int`, `bool`,
-    /// `bstr`).
     fn cddl_schema() -> Option<String> {
         None
     }
 
-    /// Return a way to refer to this type in CDDL; prefer the CDDL type name if available,
-    /// use the explicit schema if not.
     fn cddl_ref() -> String {
         if let Some(item_name) = Self::cddl_typename() {
             item_name
@@ -350,8 +311,6 @@ pub trait AsCborValue: Sized {
     }
 }
 
-// Implement the local `AsCborValue` trait for `coset::CoseEncrypt0` ensuring/requiring
-// use of the relevant CBOR tag.
 impl AsCborValue for coset::CoseEncrypt0 {
     fn from_cbor_value(value: cbor::value::Value) -> Result<Self, CborError> {
         match value {
@@ -374,7 +333,6 @@ impl AsCborValue for coset::CoseEncrypt0 {
     }
 }
 
-/// An `Option<T>` encodes as `( ? t )`, where `t` is whatever `T` encodes as in CDDL.
 impl<T: AsCborValue> AsCborValue for Option<T> {
     fn from_cbor_value(value: cbor::value::Value) -> Result<Self, CborError> {
         let mut arr = match value {
@@ -400,7 +358,6 @@ impl<T: AsCborValue> AsCborValue for Option<T> {
     }
 }
 
-/// A `Vec<T>` encodes as `( * t )`, where `t` is whatever `T` encodes as in CDDL.
 impl<T: AsCborValue> AsCborValue for Vec<T> {
     fn from_cbor_value(value: cbor::value::Value) -> Result<Self, CborError> {
         let arr = match value {

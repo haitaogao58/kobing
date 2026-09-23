@@ -12,11 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This is the metrics store module of keystore. It does the following tasks:
-//! 1. Processes the data about keystore events asynchronously, and
-//!    stores them in an in-memory store.
-//! 2. Returns the collected metrics when requested by the statsd proxy.
-
 use crate::android::hardware::security::keymint::{
     Algorithm::Algorithm, BlockMode::BlockMode, Digest::Digest, EcCurve::EcCurve,
     HardwareAuthenticatorType::HardwareAuthenticatorType, KeyOrigin::KeyOrigin,
@@ -53,7 +48,6 @@ use std::io::ErrorKind;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
-/// Helper macro to time a function call and return a tuple of (Duration, Result).
 #[macro_export]
 macro_rules! timed_call {
     ($f:expr) => {{
@@ -66,32 +60,15 @@ macro_rules! timed_call {
 #[cfg(test)]
 mod tests;
 
-// Note: Crash events are recorded at keystore restarts, based on the assumption that keystore only
-// gets restarted after a crash, during a boot cycle.
 const KEYSTORE_CRASH_COUNT_PATH: &str = crate::root_path!("crash_count");
 const KERNEL_BOOT_ID_PATH: &str = "/proc/sys/kernel/random/boot_id";
 
-/// The Keystore2KeysPerUid atom should be emitted for the top X UIDs with a key count > Y.
-/// This constant is X.
 pub const KEYS_PER_UID_MAX_UIDS: usize = 10;
 
-/// The Keystore2KeysPerUid atom should be emitted for the top X UIDs with a key count > Y.
-/// This constant is Y.
 pub const KEYS_PER_UID_MIN_KEY_COUNT: usize = 5;
 
-/// Singleton for MetricsStore.
 pub static METRICS_STORE: LazyLock<MetricsStore> = LazyLock::new(Default::default);
 
-/// MetricsStore stores the <atom object, count> as <key, value> in the inner hash map,
-/// indexed by the atom id, in the outer hash map.
-/// There can be different atom objects with the same atom id based on the values assigned to the
-/// fields of the atom objects. When an atom object with a particular combination of field values is
-/// inserted, we first check if that atom object is in the inner hash map. If one exists, count
-/// is inceremented. Otherwise, the atom object is inserted with count = 1. Note that count field
-/// of the atom object itself is set to 0 while the object is stored in the hash map. When the atom
-/// objects are queried by the atom id, the corresponding atom objects are retrieved, cloned, and
-/// the count field of the cloned objects is set to the corresponding value field in the inner hash
-/// map before the query result is returned.
 #[derive(Default)]
 pub struct MetricsStore {
     metrics_store: Mutex<HashMap<AtomID, HashMap<KeystoreAtomPayload, i32>>>,
@@ -118,21 +95,10 @@ impl std::fmt::Debug for MetricsStore {
 }
 
 impl MetricsStore {
-    /// There are some atoms whose maximum cardinality exceeds the cardinality limits tolerated
-    /// by statsd. Statsd tolerates cardinality between 200-300. Therefore, the in-memory storage
-    /// limit for a single atom is set to 250. If the number of atom objects created for a
-    /// particular atom exceeds this limit, an overflow atom object is created to track the ID of
-    /// such atoms.
     const SINGLE_ATOM_STORE_MAX_SIZE: usize = 250;
 
-    /// Return a vector of atom objects with the given atom ID, if one exists in the metrics_store.
-    /// If any atom object does not exist in the metrics_store for the given atom ID, return an
-    /// empty vector.
     pub fn get_atoms(&self, atom_id: AtomID) -> Result<Vec<KeystoreAtom>> {
         match atom_id {
-            // StorageStats, KeysPerUid, and CrashStats are handled separately since they
-            // aren't recorded in the metrics store map. Instead, the atom values are
-            // computed when the pull is triggered.
             AtomID::STORAGE_STATS => {
                 let _wp = wd::watch("MetricsStore::get_atoms calling pull_storage_stats");
                 pull_storage_stats()
@@ -185,7 +151,6 @@ impl MetricsStore {
         }
     }
 
-    /// Insert an atom object to the metrics_store indexed by the atom ID.
     fn insert_atom(&self, atom_id: AtomID, atom: KeystoreAtomPayload) {
         let mut metrics_store_guard = self.metrics_store.lock().unwrap();
         let atom_count_map = metrics_store_guard.entry(atom_id).or_default();
@@ -193,7 +158,6 @@ impl MetricsStore {
             let atom_count = atom_count_map.entry(atom).or_insert(0);
             *atom_count += 1;
         } else {
-            // Insert an overflow atom
             let overflow_atom_count_map = metrics_store_guard
                 .entry(AtomID::KEYSTORE2_ATOM_WITH_OVERFLOW)
                 .or_default();
@@ -207,14 +171,12 @@ impl MetricsStore {
                     .or_insert(0);
                 *atom_count += 1;
             } else {
-                // This is a rare case, if at all.
                 error!("In insert_atom: Maximum storage limit reached for overflow atom.")
             }
         }
     }
 }
 
-/// Log key creation events to be sent to statsd.
 pub fn log_key_creation_event_stats<U>(
     uid: i32,
     sec_level: SecurityLevel,
@@ -246,9 +208,6 @@ pub fn log_key_creation_event_stats<U>(
     }
 }
 
-// Process the statistics related to key creations and return the four atom objects related to key
-// creations: i) KeyCreationWithGeneralInfo ii) KeyCreationWithAuthInfo
-// iii) KeyCreationWithPurposeAndModesInfo iv) KeyCreationPerUid
 fn process_key_creation_event_stats<U>(
     uid: i32,
     sec_level: SecurityLevel,
@@ -261,13 +220,6 @@ fn process_key_creation_event_stats<U>(
     KeystoreAtomPayload,
     KeystoreAtomPayload,
 ) {
-    // In the default atom objects, fields represented by bitmaps and i32 fields
-    // will take 0, except error_code which defaults to 1 indicating NO_ERROR and key_size,
-    // and auth_time_out which defaults to -1.
-    // The boolean fields are set to false by default.
-    // Some keymint enums do have 0 as an enum variant value. In such cases, the corresponding
-    // enum variant value in atoms.proto is incremented by 1, in order to have 0 as the reserved
-    // value for unspecified fields.
     let mut key_creation_with_general_info = KeyCreationWithGeneralInfo {
         algorithm: MetricsAlgorithm::ALGORITHM_UNSPECIFIED,
         key_size: -1,
@@ -281,7 +233,7 @@ fn process_key_creation_event_stats<U>(
             _ => MetricsKeyOrigin::ORIGIN_UNSPECIFIED,
         },
         error_code: 1,
-        // Default for bool is false (for attestation_requested field).
+
         ..Default::default()
     };
 
@@ -293,7 +245,7 @@ fn process_key_creation_event_stats<U>(
 
     let mut key_creation_with_purpose_and_modes_info = KeyCreationWithPurposeAndModesInfo {
         algorithm: MetricsAlgorithm::ALGORITHM_UNSPECIFIED,
-        // Default for i32 is 0 (for the remaining bitmap fields).
+
         ..Default::default()
     };
 
@@ -342,7 +294,6 @@ fn process_key_creation_event_stats<U>(
                 );
             }
             KsKeyParamValue::Digest(d) => {
-                // key_creation_with_purpose_and_modes_info.digest_bitmap =
                 compute_digest_bitmap(
                     &mut key_creation_with_purpose_and_modes_info.digest_bitmap,
                     d,
@@ -385,7 +336,6 @@ fn process_key_creation_event_stats<U>(
     )
 }
 
-/// Log key operation events to be sent to statsd.
 pub fn log_key_operation_event_stats(
     uid: i32,
     sec_level: SecurityLevel,
@@ -421,9 +371,6 @@ pub fn log_key_operation_event_stats(
     }
 }
 
-// Process the statistics related to key operations and return the three atom objects related to key
-// operations: i) KeyOperationWithGeneralInfo ii) KeyOperationWithPurposeAndModesInfo
-// iii) KeyOperationPerUid
 fn process_key_operation_event_stats(
     uid: i32,
     sec_level: SecurityLevel,
@@ -448,13 +395,13 @@ fn process_key_operation_event_stats(
         error_code: 1,
         security_level,
         is_attested,
-        // Default for bool is false (for key_upgraded field).
+
         ..Default::default()
     };
 
     let mut key_operation_with_purpose_and_modes_info = KeyOperationWithPurposeAndModesInfo {
         purpose: MetricsPurpose::KEY_PURPOSE_UNSPECIFIED,
-        // Default for i32 is 0 (for the remaining bitmap fields).
+
         ..Default::default()
     };
 
@@ -698,10 +645,7 @@ pub(crate) fn parse_key_parameters(
                     Algorithm::AES => MetricsAlgorithm::AES,
                     Algorithm::TRIPLE_DES => MetricsAlgorithm::TRIPLE_DES,
                     Algorithm::HMAC => MetricsAlgorithm::HMAC,
-                    // Don't touch the algorithm for ML-DSA since
-                    // MetricsAlgorithm has an enum value for each ML-DSA
-                    // variant, which is determined from
-                    // KsKeyParameterValue::MlDsaVariant.
+
                     Algorithm::ML_DSA => algorithm,
                     _ => MetricsAlgorithm::ALGORITHM_UNSPECIFIED,
                 };
@@ -731,14 +675,12 @@ pub(crate) fn parse_key_parameters(
     }
 
     if algorithm == MetricsAlgorithm::EC {
-        // Do not record key sizes if Algorithm = EC, in order to reduce cardinality.
         key_size = None;
     }
 
     (algorithm, key_size, ec_curve)
 }
 
-/// Log key operation latency events to be sent to statsd
 pub fn log_operation_latency(
     op_type: MetricsOperationType,
     sec_level: SecurityLevel,
@@ -773,7 +715,6 @@ pub fn log_operation_latency(
     );
 }
 
-/// Log key operation streaming stats events to be sent to statsd
 pub fn log_key_operation_streaming_stats(
     algorithm: MetricsAlgorithm,
     is_success: bool,
@@ -794,10 +735,6 @@ pub fn log_key_operation_streaming_stats(
     );
 }
 
-/// Rounds a value to a bucket that preserves relative precision while limiting cardinality.
-/// * `buckets_per_decade`: number of buckets between 10^n and 10^n+1.
-/// * `min_step`: the smallest rounding increment allowed
-/// * `no_round_threshold`: values below this threshold are not rounded
 fn round_logarithmic(
     val: u64,
     buckets_per_decade: u32,
@@ -814,12 +751,6 @@ fn round_logarithmic(
     std::cmp::min(rounded, i64::MAX as u64) as i64
 }
 
-/// Rounds latency to a value that preserves useful precision while limiting cardinality.
-///
-/// Cardinality management is critical for metrics because the internal cache is
-/// limited to 250 unique entries. Latency is the highest-cardinality dimension.
-///
-/// The function follows the rounding logic documented in OperationLatency.aidl.
 fn round_latency(latency: std::time::Duration) -> i32 {
     let ms = latency.as_millis().clamp(0, i32::MAX as u128) as u32;
     let step = match ms {
@@ -831,8 +762,6 @@ fn round_latency(latency: std::time::Duration) -> i32 {
     rounded_ms as i32
 }
 
-/// Read and update the local crash-count file.
-/// If the file is absent, write 0. If it is present, increment the value.
 pub fn update_keystore_crash_count() {
     let boot_id = match current_boot_id() {
         Ok(boot_id) => boot_id,
@@ -846,9 +775,7 @@ pub fn update_keystore_crash_count() {
 
     let new_count = match read_keystore_crash_count_for_boot(&boot_id) {
         Ok(Some(count)) => count + 1,
-        // If the file is absent or belongs to an older boot, this is the first start up
-        // during this boot.
-        // Proceed to write the file with value 0.
+
         Ok(None) => 0,
         Err(error) => {
             warn!(
@@ -870,7 +797,6 @@ pub fn update_keystore_crash_count() {
     }
 }
 
-/// Read the local crash-count file.
 pub fn read_keystore_crash_count() -> Result<Option<i32>> {
     let boot_id = current_boot_id()?;
     read_keystore_crash_count_for_boot(&boot_id)
@@ -912,92 +838,74 @@ fn parse_crash_count_record(record: &str, current_boot_id: &str) -> Result<Optio
     Ok(Some(count))
 }
 
-/// Enum defining the bit position for each padding mode. Since padding mode can be repeatable, it
-/// is represented using a bitmap.
 #[allow(non_camel_case_types)]
 #[repr(i32)]
 enum PaddingModeBitPosition {
-    ///Bit position in the PaddingMode bitmap for NONE.
     NONE_BIT_POSITION = 0,
-    ///Bit position in the PaddingMode bitmap for RSA_OAEP.
+
     RSA_OAEP_BIT_POS = 1,
-    ///Bit position in the PaddingMode bitmap for RSA_PSS.
+
     RSA_PSS_BIT_POS = 2,
-    ///Bit position in the PaddingMode bitmap for RSA_PKCS1_1_5_ENCRYPT.
+
     RSA_PKCS1_1_5_ENCRYPT_BIT_POS = 3,
-    ///Bit position in the PaddingMode bitmap for RSA_PKCS1_1_5_SIGN.
+
     RSA_PKCS1_1_5_SIGN_BIT_POS = 4,
-    ///Bit position in the PaddingMode bitmap for RSA_PKCS7.
+
     PKCS7_BIT_POS = 5,
 }
 
-/// Enum defining the bit position for each digest type. Since digest can be repeatable in
-/// key parameters, it is represented using a bitmap.
 #[allow(non_camel_case_types)]
 #[repr(i32)]
 enum DigestBitPosition {
-    ///Bit position in the Digest bitmap for NONE.
     NONE_BIT_POSITION = 0,
-    ///Bit position in the Digest bitmap for MD5.
+
     MD5_BIT_POS = 1,
-    ///Bit position in the Digest bitmap for SHA1.
+
     SHA_1_BIT_POS = 2,
-    ///Bit position in the Digest bitmap for SHA_2_224.
+
     SHA_2_224_BIT_POS = 3,
-    ///Bit position in the Digest bitmap for SHA_2_256.
+
     SHA_2_256_BIT_POS = 4,
-    ///Bit position in the Digest bitmap for SHA_2_384.
+
     SHA_2_384_BIT_POS = 5,
-    ///Bit position in the Digest bitmap for SHA_2_512.
+
     SHA_2_512_BIT_POS = 6,
 }
 
-/// Enum defining the bit position for each block mode type. Since block mode can be repeatable in
-/// key parameters, it is represented using a bitmap.
 #[allow(non_camel_case_types)]
 #[repr(i32)]
 enum BlockModeBitPosition {
-    ///Bit position in the BlockMode bitmap for ECB.
     ECB_BIT_POS = 1,
-    ///Bit position in the BlockMode bitmap for CBC.
+
     CBC_BIT_POS = 2,
-    ///Bit position in the BlockMode bitmap for CTR.
+
     CTR_BIT_POS = 3,
-    ///Bit position in the BlockMode bitmap for GCM.
+
     GCM_BIT_POS = 4,
 }
 
-/// Enum defining the bit position for each key purpose. Since key purpose can be repeatable in
-/// key parameters, it is represented using a bitmap.
 #[allow(non_camel_case_types)]
 #[repr(i32)]
 enum KeyPurposeBitPosition {
-    ///Bit position in the KeyPurpose bitmap for Encrypt.
     ENCRYPT_BIT_POS = 1,
-    ///Bit position in the KeyPurpose bitmap for Decrypt.
+
     DECRYPT_BIT_POS = 2,
-    ///Bit position in the KeyPurpose bitmap for Sign.
+
     SIGN_BIT_POS = 3,
-    ///Bit position in the KeyPurpose bitmap for Verify.
+
     VERIFY_BIT_POS = 4,
-    ///Bit position in the KeyPurpose bitmap for Wrap Key.
+
     WRAP_KEY_BIT_POS = 5,
-    ///Bit position in the KeyPurpose bitmap for Agree Key.
+
     AGREE_KEY_BIT_POS = 6,
-    ///Bit position in the KeyPurpose bitmap for Attest Key.
+
     ATTEST_KEY_BIT_POS = 7,
 }
 
-/// The various metrics-related types are not defined in this crate, so the orphan
-/// trait rule means that `std::fmt::Debug` cannot be implemented for them.
-/// Instead, create our own local trait that generates a debug string for a type.
 trait Summary {
     fn show(&self) -> String;
 }
 
-/// Implement the [`Summary`] trait for AIDL-derived pseudo-enums, mapping named enum values to
-/// specified short names, all padded with spaces to the specified width (to allow improved
-/// readability when printed in a group).
 macro_rules! impl_summary_enum {
     {  $enum:ident, $width:literal, $( $variant:ident => $short:literal ),+ $(,)? } => {
         impl Summary for $enum{
@@ -1135,17 +1043,10 @@ impl_summary_enum!(MetricsOperationType, 7,
     ENTIRE_OPERATION => "OPERATION",
 );
 
-/// Convert an argument into a corresponding format clause.  (This is needed because
-/// macro expansion text for repeated inputs needs to mention one of the repeated
-/// inputs.)
 macro_rules! format_clause {
     {  $ignored:ident } => { "{}" }
 }
 
-/// Generate code to print a string corresponding to a bitmask, where the given
-/// enum identifies which bits mean what.  If additional bits (not included in
-/// the enum variants) are set, include the whole bitmask in the output so no
-/// information is lost.
 macro_rules! show_enum_bitmask {
     {  $v:expr, $enum:ident, $( $variant:ident => $short:literal ),+ $(,)? } => {
         {

@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! TA functionality related to in-progress crypto operations.
-
 use kmr_common::{
     crypto::{AadOperation, AccumulatingOperation, EmittingOperation},
     keyblob, km_err, Error, FallibleAllocExt,
@@ -27,23 +25,17 @@ use std::{boxed::Box, vec::Vec};
 
 mod begin;
 
-/// A trusted confirmation token should be the size of HMAC-SHA256 output.
 const CONFIRMATION_TOKEN_SIZE: usize = 32;
 
-/// Trusted confirmation data prefix, from IConfirmationResultCallback.hal.
 const CONFIRMATION_DATA_PREFIX: &[u8] = b"confirmation token";
 
-/// Maximum size of messages with `Tag::TrustedConfirmationRequired` set.
-/// See <https://source.android.com/security/protected-confirmation/implementation>
 const CONFIRMATION_MESSAGE_MAX_LEN: usize = 6144;
 
-/// Union holder for in-progress cryptographic operations, each of which is an instance
-/// of the relevant trait.
 pub(crate) enum CryptoOperation {
     Aes(Box<dyn EmittingOperation>),
     AesGcm(Box<dyn AadOperation>),
     Des(Box<dyn EmittingOperation>),
-    HmacSign(Box<dyn AccumulatingOperation>, usize), // tag length
+    HmacSign(Box<dyn AccumulatingOperation>, usize),
     HmacVerify(Box<dyn AccumulatingOperation>, core::ops::Range<usize>),
     RsaDecrypt(Box<dyn AccumulatingOperation>),
     RsaSign(Box<dyn AccumulatingOperation>),
@@ -52,33 +44,23 @@ pub(crate) enum CryptoOperation {
     MlDsaSign(Box<dyn AccumulatingOperation>),
 }
 
-/// Current state of an operation.
 pub(crate) struct Operation {
-    /// Random handle used to identify the operation, also used as a challenge.
     pub handle: OpHandle,
 
-    /// Whether update_aad() is allowed (only ever true for AEADs before data has arrived).
     pub aad_allowed: bool,
 
-    /// Secure deletion slot to delete on successful completion of the operation.
     pub slot_to_delete: Option<keyblob::SecureDeletionSlot>,
 
-    /// Buffer to accumulate data being signed that must have a trusted confirmation. This
-    /// data matches what was been fed into `crypto_op`'s `update` method (but has a size
-    /// limit so will not grow unboundedly).
     pub trusted_conf_data: Option<Vec<u8>>,
 
-    /// Authentication data to check.
     pub auth_info: Option<AuthInfo>,
 
     pub crypto_op: CryptoOperation,
 
-    /// Accumulated input size.
     pub input_size: usize,
 }
 
 impl Operation {
-    /// Check whether `len` additional bytes of data can be accommodated by the `Operation`.
     fn check_size(&mut self, len: usize) -> Result<(), Error> {
         self.input_size += len;
         let max_size = match &self.crypto_op {
@@ -102,11 +84,9 @@ impl Operation {
     }
 }
 
-/// Newtype for operation handles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct OpHandle(pub i64);
 
-/// Authentication requirements associated with an operation.
 pub(crate) struct AuthInfo {
     secure_ids: Vec<u64>,
     auth_type: u32,
@@ -114,8 +94,6 @@ pub(crate) struct AuthInfo {
 }
 
 impl AuthInfo {
-    /// Optionally build an `AuthInfo` from key characteristics. If no authentication is needed on
-    /// `update()`/`update_aad()`/`finish()`, return `None`.
     fn new(key_chars: &[KeyParam]) -> Result<Option<AuthInfo>, Error> {
         let mut secure_ids = Vec::new();
         let mut auth_type = None;
@@ -385,11 +363,9 @@ impl crate::KeyMintTa {
         };
         if result.is_ok() {
             if let Some(trusted_conf_data) = op.trusted_conf_data {
-                // Accumulated input must be checked against the trusted confirmation token.
                 self.verify_confirmation_token(&trusted_conf_data, confirmation_token)?;
             }
             if let (Some(slot), Some(sdd_mgr)) = (op.slot_to_delete, &mut self.dev.sdd_mgr) {
-                // A successful use of a key with UsageCountLimit(1) triggers deletion.
                 warn!("Deleting single-use key after use");
                 if let Err(e) = sdd_mgr.delete_secret(slot) {
                     error!("Failed to delete single-use key after use: {e:?}");
@@ -407,7 +383,6 @@ impl crate::KeyMintTa {
         Ok(())
     }
 
-    /// Validate a `[keymint::HardwareAuthToken`].
     fn check_auth_token(
         &self,
         auth_token: HardwareAuthToken,
@@ -416,7 +391,6 @@ impl crate::KeyMintTa {
         timeout_secs: Option<u32>,
         challenge: Option<i64>,
     ) -> Result<(), Error> {
-        // Common check: confirm the HMAC tag in the token is valid.
         let mac_input = crate::hardware_auth_token_mac_input(&auth_token)?;
         if !self.verify_device_hmac(&mac_input, &auth_token.mac)? {
             return Err(km_err!(
@@ -424,7 +398,7 @@ impl crate::KeyMintTa {
                 "failed to authenticate auth_token"
             ));
         }
-        // Common check: token's auth type should match key's USER_AUTH_TYPE.
+
         if (auth_token.authenticator_type as u32 & auth_info.auth_type) == 0 {
             return Err(km_err!(
                 KeyUserNotAuthenticated,
@@ -434,7 +408,6 @@ impl crate::KeyMintTa {
             ));
         }
 
-        // Common check: token's authenticator or user ID should match key's USER_SECURE_ID.
         if !auth_info.secure_ids.iter().any(|sid| {
             auth_token.user_id == *sid as i64 || auth_token.authenticator_id == *sid as i64
         }) {
@@ -446,7 +419,6 @@ impl crate::KeyMintTa {
             ));
         }
 
-        // Optional check: token is in time range.
         if let (Some(now), Some(timeout_secs)) = (now, timeout_secs) {
             if now.milliseconds > auth_token.timestamp.milliseconds + 1000 * timeout_secs as i64 {
                 return Err(km_err!(
@@ -457,7 +429,6 @@ impl crate::KeyMintTa {
             }
         }
 
-        // Optional check: challenge matches.
         if let Some(challenge) = challenge {
             if auth_token.challenge != challenge {
                 return Err(km_err!(KeyUserNotAuthenticated, "challenge mismatch"));
@@ -466,7 +437,6 @@ impl crate::KeyMintTa {
         Ok(())
     }
 
-    /// Verify that an optional confirmation token matches the provided `data`.
     fn verify_confirmation_token(&self, data: &[u8], token: Option<&[u8]>) -> Result<(), Error> {
         if let Some(token) = token {
             if token.len() != CONFIRMATION_TOKEN_SIZE {
@@ -497,7 +467,6 @@ impl crate::KeyMintTa {
         }
     }
 
-    /// Return the index of a free slot in the operations table.
     fn new_operation_index(&mut self) -> Result<usize, Error> {
         self.operations
             .iter()
@@ -511,19 +480,15 @@ impl crate::KeyMintTa {
             })
     }
 
-    /// Return a new operation handle value that is not currently in use in the
-    /// operations table.
     fn new_op_handle(&mut self) -> OpHandle {
         loop {
             let op_handle = OpHandle(self.imp.rng.next_u64() as i64);
             if self.op_index(op_handle).is_err() {
                 return op_handle;
             }
-            // op_handle already in use, go around again.
         }
     }
 
-    /// Return the index into the operations table of an operation identified by `op_handle`.
     fn op_index(&self, op_handle: OpHandle) -> Result<usize, Error> {
         self.operations
             .iter()
@@ -535,8 +500,6 @@ impl crate::KeyMintTa {
             .ok_or_else(|| km_err!(InvalidOperation, "operation handle {op_handle:?} not found"))
     }
 
-    /// Execute the provided lambda over the associated [`Operation`], handling
-    /// errors.
     fn with_authed_operation<F, T>(
         &mut self,
         op_handle: OpHandle,
@@ -549,17 +512,16 @@ impl crate::KeyMintTa {
     {
         let op_idx = self.op_index(op_handle)?;
         let check_again = self.check_subsequent_auth(
-            self.operations[op_idx].as_ref().unwrap(/* safe: op_index() checks */ ),
+            self.operations[op_idx].as_ref().unwrap(),
             auth_token,
             timestamp_token,
         )?;
-        let op = self.operations[op_idx].as_mut().unwrap(/* safe: op_index() checks */);
+        let op = self.operations[op_idx].as_mut().unwrap();
         if !check_again {
             op.auth_info = None;
         }
         let result = f(op);
         if result.is_err() {
-            // A failure destroys the operation.
             if self.presence_required_op == Some(op_handle) {
                 self.presence_required_op = None;
             }
@@ -568,14 +530,11 @@ impl crate::KeyMintTa {
         result
     }
 
-    /// Return the associated [`Operation`], removing it.
     fn take_operation(&mut self, op_handle: OpHandle) -> Result<Operation, Error> {
         let op_idx = self.op_index(op_handle)?;
-        Ok(self.operations[op_idx].take().unwrap(/* safe: op_index() checks */))
+        Ok(self.operations[op_idx].take().unwrap())
     }
 
-    /// Check authentication for an operation that has already begun. Returns an indication as to
-    /// whether future invocations also need to check authentication.
     fn check_subsequent_auth(
         &self,
         op: &Operation,
@@ -587,11 +546,6 @@ impl crate::KeyMintTa {
                 km_err!(KeyUserNotAuthenticated, "no auth token on subsequent op")
             })?;
 
-            // Most auth checks happen on begin(), but there are two exceptions.
-            // a) There is no AUTH_TIMEOUT: there should be a valid auth token on every invocation.
-            // b) There is an AUTH_TIMEOUT but we have no clock: the first invocation on the
-            //    operation (after `begin()`) should check the timeout, based on a provided
-            //    timestamp token.
             if let Some(timeout_secs) = auth_info.timeout_secs {
                 if self.imp.clock.is_some() {
                     return Err(km_err!(
@@ -600,7 +554,6 @@ impl crate::KeyMintTa {
                     ));
                 }
 
-                // Check that the timestamp token is valid.
                 let timestamp_token = timestamp_token
                     .ok_or_else(|| km_err!(InvalidArgument, "no timestamp token provided"))?;
                 if timestamp_token.challenge != op.handle.0 {
@@ -619,11 +572,10 @@ impl crate::KeyMintTa {
                     Some(op.handle.0),
                 )?;
 
-                // No need to check again.
                 Ok(false)
             } else {
                 self.check_auth_token(auth_token, auth_info, None, None, Some(op.handle.0))?;
-                // Check on every invocation
+
                 Ok(true)
             }
         } else {

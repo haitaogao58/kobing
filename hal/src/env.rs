@@ -12,25 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Retrieve and populate information about userspace.
-
 use kmr_wire::SetHalInfoRequest;
 use regex::Regex;
 
-// The OS version property is of form "12" or "12.1" or "12.1.3".
 const OS_VERSION_PROPERTY: &str = "ro.build.version.release";
 const OS_VERSION_REGEX: &str = r"^(?P<major>\d{1,2})(\.(?P<minor>\d{1,2}))?(\.(?P<sub>\d{1,2}))?$";
 
-// The patchlevel properties are of form "YYYY-MM-DD".
-/// Name of property that holds the OS patchlevel.
 pub const OS_PATCHLEVEL_PROPERTY: &str = "ro.build.version.security_patch";
 const VENDOR_PATCHLEVEL_PROPERTY: &str = "ro.vendor.build.security_patch";
 const PATCHLEVEL_REGEX: &str = r"^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})$";
 
-// Just use [`String`] for errors here.
 type Error = String;
 
-/// Retrieve a numeric value from a possible match.
 fn extract_u32(value: Option<regex::Match>) -> Result<u32, Error> {
     match value {
         Some(m) => {
@@ -44,7 +37,6 @@ fn extract_u32(value: Option<regex::Match>) -> Result<u32, Error> {
     }
 }
 
-/// Retrieve the value of a property identified by `name`.
 pub fn get_property(name: &str) -> Result<String, Error> {
     match rustutils::android::system_properties::read(name) {
         Ok(Some(value)) => Ok(value),
@@ -53,7 +45,6 @@ pub fn get_property(name: &str) -> Result<String, Error> {
     }
 }
 
-/// Extract a patchlevel in form YYYYMM from a "YYYY-MM-DD" property value.
 pub fn extract_truncated_patchlevel(prop_value: &str) -> Result<u32, Error> {
     let patchlevel_regex = Regex::new(PATCHLEVEL_REGEX)
         .map_err(|e| format!("failed to compile patchlevel regexp: {e:?}"))?;
@@ -66,11 +57,10 @@ pub fn extract_truncated_patchlevel(prop_value: &str) -> Result<u32, Error> {
     if !(1..=12).contains(&month) {
         return Err(format!("month out of range: {month}"));
     }
-    // no day
+
     Ok(year * 100 + month)
 }
 
-/// Extract a patchlevel in form YYYYMMDD from a "YYYY-MM-DD" property value.
 pub fn extract_patchlevel(prop_value: &str) -> Result<u32, Error> {
     let patchlevel_regex = Regex::new(PATCHLEVEL_REGEX)
         .map_err(|e| format!("failed to compile patchlevel regexp: {e:?}"))?;
@@ -90,7 +80,6 @@ pub fn extract_patchlevel(prop_value: &str) -> Result<u32, Error> {
     Ok(year * 10000 + month * 100 + day)
 }
 
-/// Generate HAL information from property values.
 fn populate_hal_info_from(
     os_version_prop: &str,
     os_patchlevel_prop: &str,
@@ -113,7 +102,6 @@ fn populate_hal_info_from(
     })
 }
 
-/// Populate a [`SetHalInfoRequest`] based on property values read from the environment.
 pub fn populate_hal_info() -> Result<SetHalInfoRequest, Error> {
     let os_version_prop = get_property(OS_VERSION_PROPERTY)
         .map_err(|e| format!("failed to retrieve property: {e:?}"))?;
@@ -122,7 +110,11 @@ pub fn populate_hal_info() -> Result<SetHalInfoRequest, Error> {
     let vendor_patchlevel_prop = get_property(VENDOR_PATCHLEVEL_PROPERTY)
         .map_err(|e| format!("failed to retrieve property: {e:?}"))?;
 
-    populate_hal_info_from(&os_version_prop, &os_patchlevel_prop, &vendor_patchlevel_prop)
+    populate_hal_info_from(
+        &os_version_prop,
+        &os_patchlevel_prop,
+        &vendor_patchlevel_prop,
+    )
 }
 
 #[cfg(test)]
@@ -165,20 +157,53 @@ mod tests {
         ];
         for (os_version, os_patch, vendor_patch, want) in tests {
             let got = populate_hal_info_from(os_version, os_patch, vendor_patch).unwrap();
-            assert_eq!(got, want, "Mismatch for input ({os_version}, {os_patch}, {vendor_patch})");
+            assert_eq!(
+                got, want,
+                "Mismatch for input ({os_version}, {os_patch}, {vendor_patch})"
+            );
         }
     }
 
     #[test]
     fn test_invalid_hal_info() {
         let tests = vec![
-            ("xx", "2021-02-02", "2022-03-04", "failed to match OS version"),
-            ("12.xx", "2021-02-02", "2022-03-04", "failed to match OS version"),
-            ("12.5.xx", "2021-02-02", "2022-03-04", "failed to match OS version"),
-            ("12", "20212-02-02", "2022-03-04", "failed to match patchlevel regex"),
-            ("12", "2021-xx-02", "2022-03-04", "failed to match patchlevel"),
+            (
+                "xx",
+                "2021-02-02",
+                "2022-03-04",
+                "failed to match OS version",
+            ),
+            (
+                "12.xx",
+                "2021-02-02",
+                "2022-03-04",
+                "failed to match OS version",
+            ),
+            (
+                "12.5.xx",
+                "2021-02-02",
+                "2022-03-04",
+                "failed to match OS version",
+            ),
+            (
+                "12",
+                "20212-02-02",
+                "2022-03-04",
+                "failed to match patchlevel regex",
+            ),
+            (
+                "12",
+                "2021-xx-02",
+                "2022-03-04",
+                "failed to match patchlevel",
+            ),
             ("12", "2021-13-02", "2022-03-04", "month out of range"),
-            ("12", "2022-03-04", "2021-xx-02", "failed to match patchlevel"),
+            (
+                "12",
+                "2022-03-04",
+                "2021-xx-02",
+                "failed to match patchlevel",
+            ),
             ("12", "2022-03-04", "2021-13-02", "month out of range"),
             ("12", "2022-03-04", "2021-03-32", "day out of range"),
         ];

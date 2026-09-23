@@ -323,17 +323,14 @@ pub fn get_apex_module_info() -> anyhow::Result<Vec<ApexModuleInfo>> {
 
 pub use kmr_common::consts::AID_USER_OFFSET;
 
-/// Gets the user id from a uid.
 pub fn multiuser_get_user_id(uid: u32) -> u32 {
     uid / AID_USER_OFFSET
 }
 
-/// Gets the app id from a uid.
 pub fn multiuser_get_app_id(uid: u32) -> u32 {
     uid % AID_USER_OFFSET
 }
 
-/// Extracts the android user from the given uid.
 pub fn uid_to_android_user(uid: u32) -> u32 {
     multiuser_get_user_id(uid)
 }

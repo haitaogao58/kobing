@@ -12,12 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This module implements the key garbage collector.
-//! The key garbage collector has one public function `notify_gc()`. This will create
-//! a thread on demand which will query the database for unreferenced key entries,
-//! optionally dispose of sensitive key material appropriately, and then delete
-//! the key entry from the database.
-
 use crate::keymaster::async_task::AsyncTask;
 use crate::keymaster::db::{KeystoreDB, SupersededBlob, Uuid};
 use crate::keymaster::super_key::SuperKeyManager;
@@ -37,12 +31,6 @@ pub struct Gc {
 }
 
 impl Gc {
-    /// Creates a garbage collector using the given async_task.
-    /// The garbage collector needs a function to invalidate key blobs, a database connection,
-    /// and a reference to the `SuperKeyManager`. They are obtained from the init function.
-    /// The function is only called if this is first time a garbage collector was initialized
-    /// with the given AsyncTask instance.
-    /// Note: It is a logical error to initialize different Gc instances with the same `AsyncTask`.
     pub fn new_init_with<F>(async_task: Arc<AsyncTask>, init: F) -> Self
     where
         F: FnOnce() -> (InvalidateKey, KeystoreDB, Arc<RwLock<SuperKeyManager>>) + Send + 'static,
@@ -50,7 +38,7 @@ impl Gc {
         let weak_at = Arc::downgrade(&async_task);
         let notified = Arc::new(AtomicU8::new(0));
         let notified_clone = notified.clone();
-        // Initialize the task's shelf.
+
         async_task.queue_hi(move |shelf| {
             let (invalidate_key, db, super_key) = init();
             let notified = notified_clone;
@@ -70,9 +58,6 @@ impl Gc {
         }
     }
 
-    /// Notifies the key garbage collector to iterate through orphaned and superseded blobs and
-    /// attempts their deletion. We only process one key at a time and then schedule another
-    /// attempt by queueing it in the async_task (low priority) queue.
     pub fn notify_gc(&self) {
         if let Ok(0) = self
             .notified
@@ -95,12 +80,6 @@ struct GcInternal {
 }
 
 impl GcInternal {
-    /// Attempts to process one blob from the database.
-    /// We process one key at a time, because deleting a key is a time consuming process which
-    /// may involve calling into the KeyMint backend and we don't want to hog neither the backend
-    /// nor the database for extended periods of time.
-    /// To limit the number of database transactions, which are also expensive and competing
-    /// with threads on the critical path, deleted blobs are loaded in batches.
     fn process_one_key(&mut self) -> Result<()> {
         if self.superseded_blobs.is_empty() {
             let blobs = self
@@ -117,15 +96,8 @@ impl GcInternal {
             metadata,
         }) = self.superseded_blobs.pop()
         {
-            // Add the next blob_id to the deleted blob ids list. So it will be
-            // removed from the database regardless of whether the following
-            // succeeds or not.
             self.deleted_blob_ids.push(blob_id);
 
-            // If the key has a km_uuid we try to get the corresponding device
-            // and delete the key, unwrapping if necessary and possible.
-            // (At this time keys may get deleted without having the super encryption
-            // key in this case we can only delete the key from the database.)
             if let Some(uuid) = metadata.km_uuid() {
                 let blob = self
                     .super_key
@@ -139,24 +111,16 @@ impl GcInternal {
         Ok(())
     }
 
-    /// Processes one key and then schedules another attempt until it runs out of blobs to delete.
     fn step(&mut self) {
         self.notified.store(0, Ordering::Relaxed);
         if !global::boot_completed() {
-            // Garbage collection involves a operation (`IKeyMintDevice::deleteKey()`) that cannot
-            // be rolled back in some cases (specifically, when the key is rollback-resistant), even
-            // if the Keystore database is restored to the version of an earlier userdata filesystem
-            // checkpoint.
-            //
-            // This means that we should not perform GC until boot has fully completed, and any
-            // in-progress OTA is definitely not going to be rolled back.
             log::info!("skip GC as boot not completed");
             return;
         }
         if let Err(e) = self.process_one_key() {
             error!("Error trying to delete blob entry: {e:?}");
         }
-        // Schedule the next step. This gives high priority requests a chance to interleave.
+
         if !self.deleted_blob_ids.is_empty() {
             if let Some(at) = self.async_task.upgrade() {
                 if let Ok(0) =

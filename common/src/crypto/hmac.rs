@@ -12,23 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Functionality related to HMAC signing/verification.
-
 use crate::{km_err, try_to_vec, Error};
 use kmr_wire::KeySizeInBits;
 use std::vec::Vec;
 use zeroize::ZeroizeOnDrop;
 
-/// Minimum size of an HMAC key in bits.
 pub const MIN_KEY_SIZE_BITS: usize = 64;
 
-/// Maximum size of a StrongBox HMAC key in bits.
 pub const MAX_STRONGBOX_KEY_SIZE_BITS: usize = 512;
 
-/// Maximum size of a HMAC key in bits.
 pub const MAX_KEY_SIZE_BITS: usize = 1024;
 
-/// An HMAC key.
 #[derive(Clone, PartialEq, Eq, ZeroizeOnDrop)]
 pub struct Key(pub Vec<u8>);
 
@@ -50,28 +44,23 @@ fn valid_size(key_size: KeySizeInBits, max_size_bits: usize) -> Result<(), Error
     }
 }
 
-/// Check that the size of an HMAC key is within the allowed size for the KeyMint HAL.
 pub fn valid_hal_size(key_size: KeySizeInBits) -> Result<(), Error> {
     valid_size(key_size, MAX_KEY_SIZE_BITS)
 }
 
-/// Check that the size of an HMAC key is within the allowed size for a StrongBox implementation.
 pub fn valid_strongbox_hal_size(key_size: KeySizeInBits) -> Result<(), Error> {
     valid_size(key_size, MAX_STRONGBOX_KEY_SIZE_BITS)
 }
 
 impl Key {
-    /// Create a new HMAC key from data.
     pub fn new(data: Vec<u8>) -> Key {
         Key(data)
     }
 
-    /// Create a new HMAC key from data.
     pub fn new_from(data: &[u8]) -> Result<Key, Error> {
         Ok(Key::new(try_to_vec(data)?))
     }
 
-    /// Indicate the size of the key in bits.
     pub fn size(&self) -> KeySizeInBits {
         KeySizeInBits((self.0.len() * 8) as u32)
     }

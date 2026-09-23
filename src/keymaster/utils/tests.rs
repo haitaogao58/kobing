@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Utility functions tests.
-
 use super::*;
 use crate::android::hardware::security::keymint::{
     Algorithm::Algorithm, EcCurve::EcCurve, HardwareAuthenticatorType::HardwareAuthenticatorType,
@@ -28,9 +26,8 @@ use kmr_wire::{KeySizeInBits, ValueNotRecognized};
 fn check_device_attestation_permissions_test() -> Result<()> {
     check_device_attestation_permissions().or_else(|error| {
         match error.root_cause().downcast_ref::<Error>() {
-            // Expected: the context for this test might not be allowed to attest device IDs.
             Some(Error::Km(ErrorCode::CANNOT_ATTEST_IDS)) => Ok(()),
-            // Other errors are unexpected
+
             _ => Err(error),
         }
     })
@@ -530,13 +527,7 @@ fn test_app_info_for_uid() -> Result<()> {
         }
     );
 
-    // Try retrieving some system uids; these generally map to a "shared:<pkgname>" that does not
-    // have target SDK information.
-    for uid in [
-        AID_SYSTEM,   // AID_SYSTEM => "shared:android.uid.system"
-        AppUid(1001), // AID_RADIO => "shared:android.uid.phone"
-        AppUid(1073), // AID_NETWORK_STACK => "shared:android.uid.networkstack"
-    ] {
+    for uid in [AID_SYSTEM, AppUid(1001), AppUid(1073)] {
         let app_info = app_info_for_uid(uid);
         log::info!("{uid:?} => {app_info:?}");
     }

@@ -13,8 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Software-only trait implementations using fake keys.
-
 use kmr_common::{
     crypto,
     crypto::{Hkdf, Rng},
@@ -24,14 +22,12 @@ use kmr_crypto_boring::{hmac::BoringHmac, rng::BoringRng};
 use kmr_ta::device::RetrieveKeyMaterial;
 use rand::{rngs::StdRng, Rng as RandRng, SeedableRng};
 
-/// Root key retrieval using hard-coded fake keys.
 pub struct Keys {
     root_kek_seed: [u8; 32],
     kak_seed: [u8; 32],
 }
 
 impl Keys {
-    /// Creates a new `Keys` instance with the given seeds.
     pub fn new(root_kek_seed: [u8; 32], kak_seed: [u8; 32]) -> Self {
         Self {
             root_kek_seed,
@@ -42,7 +38,6 @@ impl Keys {
 
 impl RetrieveKeyMaterial for Keys {
     fn root_kek(&self, _context: &[u8]) -> Result<crypto::OpaqueOr<crypto::hmac::Key>, Error> {
-        // Matches `MASTER_KEY` in system/keymaster/key_blob_utils/software_keyblobs.cpp
         let mut rng = StdRng::from_seed(self.root_kek_seed);
         let mut key = [0; 16];
         RandRng::fill_bytes(&mut rng, &mut key);
@@ -50,8 +45,6 @@ impl RetrieveKeyMaterial for Keys {
         Ok(crypto::hmac::Key::new(key.to_vec()).into())
     }
     fn kak(&self) -> Result<crypto::OpaqueOr<crypto::aes::Key>, Error> {
-        // Matches `kFakeKeyAgreementKey` in
-        // system/keymaster/km_openssl/soft_keymaster_enforcement.cpp.
         let mut rng = StdRng::from_seed(self.kak_seed);
         let mut key = [0; 32];
         RandRng::fill_bytes(&mut rng, &mut key);
@@ -60,14 +53,12 @@ impl RetrieveKeyMaterial for Keys {
     }
 }
 
-/// Implementation of key derivation using a random fake key.
 pub struct Derive {
     hbk: Vec<u8>,
 }
 
 impl Default for Derive {
     fn default() -> Self {
-        // Use random data as an emulation of a hardware-backed key.
         let mut hbk = vec![0; 32];
         let mut rng = BoringRng;
         rng.fill_bytes(&mut hbk);
@@ -81,5 +72,4 @@ impl crate::keymint::rpc::DeriveBytes for Derive {
     }
 }
 
-/// RPC artifact retrieval using software fake key.
 pub type RpcArtifacts = crate::keymint::rpc::Artifacts<Derive>;

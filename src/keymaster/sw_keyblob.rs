@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Code for parsing software-backed keyblobs, as emitted by the C++ reference implementation of
-//! KeyMint.
-
 use crate::android::hardware::security::keymint::{
     Algorithm::Algorithm, BlockMode::BlockMode, Digest::Digest, EcCurve::EcCurve,
     ErrorCode::ErrorCode, HardwareAuthenticatorType::HardwareAuthenticatorType,
@@ -31,29 +28,24 @@ use std::mem::size_of;
 #[cfg(test)]
 mod tests;
 
-/// Root of trust value.
 const SOFTWARE_ROOT_OF_TRUST: &[u8] = b"SW";
 
-/// Error macro.
 macro_rules! bloberr {
     { $($arg:tt)+ } => {
         anyhow::Error::new(Error::Km(ErrorCode::INVALID_KEY_BLOB)).context(ks_err!($($arg)+))
     };
 }
 
-/// Get the `KeyParameterValue` associated with a tag from a collection of `KeyParameter`s.
 fn get_tag_value(params: &[KeyParameter], tag: Tag) -> Option<&KeyParameterValue> {
     params
         .iter()
         .find_map(|kp| if kp.tag == tag { Some(&kp.value) } else { None })
 }
 
-/// Get the [`TagType`] for a [`Tag`].
 fn tag_type(tag: &Tag) -> TagType {
     TagType((tag.0 as u32 & 0xf0000000) as i32)
 }
 
-/// Extract key material and combined key characteristics from a legacy authenticated keyblob.
 pub fn export_key(
     data: &[u8],
     params: &[KeyParameter],
@@ -82,7 +74,6 @@ pub fn export_key(
 
     let key_material = match (format, algo_val) {
         (KeyFormat::PKCS8, KeyParameterValue::Algorithm(Algorithm::EC)) => {
-            // Key material format depends on the curve.
             let curve = get_tag_value(&combined, Tag::EC_CURVE)
                 .ok_or_else(|| bloberr!("Failed to determine curve for EC key!"))?;
             match curve {
@@ -114,51 +105,28 @@ pub fn export_key(
     Ok((format, key_material, combined))
 }
 
-/// DER-encoded `AlgorithmIdentifier` for a P-224 key.
 const DER_ALGORITHM_ID_P224: &[u8] = &[
-    0x30, 0x10, // SEQUENCE (AlgorithmIdentifier) {
-    0x06, 0x07, // OBJECT IDENTIFIER (algorithm)
-    0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, // 1.2.840.10045.2.1 (ecPublicKey)
-    0x06, 0x05, // OBJECT IDENTIFIER (param)
-    0x2b, 0x81, 0x04, 0x00, 0x21, //  1.3.132.0.33 (secp224r1) }
+    0x30, 0x10, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x05, 0x2b, 0x81, 0x04,
+    0x00, 0x21,
 ];
 
-/// DER-encoded `AlgorithmIdentifier` for a P-256 key.
 const DER_ALGORITHM_ID_P256: &[u8] = &[
-    0x30, 0x13, // SEQUENCE (AlgorithmIdentifier) {
-    0x06, 0x07, // OBJECT IDENTIFIER (algorithm)
-    0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, // 1.2.840.10045.2.1 (ecPublicKey)
-    0x06, 0x08, // OBJECT IDENTIFIER (param)
-    0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, //  1.2.840.10045.3.1.7 (secp256r1) }
+    0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a, 0x86, 0x48,
+    0xce, 0x3d, 0x03, 0x01, 0x07,
 ];
 
-/// DER-encoded `AlgorithmIdentifier` for a P-384 key.
 const DER_ALGORITHM_ID_P384: &[u8] = &[
-    0x30, 0x10, // SEQUENCE (AlgorithmIdentifier) {
-    0x06, 0x07, // OBJECT IDENTIFIER (algorithm)
-    0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, // 1.2.840.10045.2.1 (ecPublicKey)
-    0x06, 0x05, // OBJECT IDENTIFIER (param)
-    0x2b, 0x81, 0x04, 0x00, 0x22, //  1.3.132.0.34 (secp384r1) }
+    0x30, 0x10, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x05, 0x2b, 0x81, 0x04,
+    0x00, 0x22,
 ];
 
-/// DER-encoded `AlgorithmIdentifier` for a P-384 key.
 const DER_ALGORITHM_ID_P521: &[u8] = &[
-    0x30, 0x10, // SEQUENCE (AlgorithmIdentifier) {
-    0x06, 0x07, // OBJECT IDENTIFIER (algorithm)
-    0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, // 1.2.840.10045.2.1 (ecPublicKey)
-    0x06, 0x05, // OBJECT IDENTIFIER (param)
-    0x2b, 0x81, 0x04, 0x00, 0x23, //  1.3.132.0.35 (secp521r1) }
+    0x30, 0x10, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x05, 0x2b, 0x81, 0x04,
+    0x00, 0x23,
 ];
 
-/// DER-encoded integer value zero.
-const DER_VERSION_0: &[u8] = &[
-    0x02, // INTEGER
-    0x01, // len
-    0x00, // value 0
-];
+const DER_VERSION_0: &[u8] = &[0x02, 0x01, 0x00];
 
-/// Given a NIST curve EC key in the form of a DER-encoded `ECPrivateKey`
-/// (RFC 5915 s3), wrap it in a DER-encoded PKCS#8 format (RFC 5208 s5).
 fn pkcs8_wrap_nist_key(nist_key: &[u8], curve: EcCurve) -> Result<Vec<u8>> {
     let der_alg_id = match curve {
         EcCurve::P_224 => DER_ALGORITHM_ID_P224,
@@ -168,22 +136,13 @@ fn pkcs8_wrap_nist_key(nist_key: &[u8], curve: EcCurve) -> Result<Vec<u8>> {
         _ => return Err(bloberr!("unknown curve {curve:?}")),
     };
 
-    // Output format is:
-    //
-    //    PrivateKeyInfo ::= SEQUENCE {
-    //        version                   INTEGER,
-    //        privateKeyAlgorithm       AlgorithmIdentifier,
-    //        privateKey                OCTET STRING,
-    //    }
-    //
-    // Start by building the OCTET STRING so we know its length.
     let mut nist_key_octet_string = Vec::new();
-    nist_key_octet_string.push(0x04); // OCTET STRING
+    nist_key_octet_string.push(0x04);
     add_der_len(&mut nist_key_octet_string, nist_key.len())?;
     nist_key_octet_string.extend_from_slice(nist_key);
 
     let mut buf = Vec::new();
-    buf.push(0x30); // SEQUENCE
+    buf.push(0x30);
     add_der_len(
         &mut buf,
         DER_VERSION_0.len() + der_alg_id.len() + nist_key_octet_string.len(),
@@ -194,15 +153,14 @@ fn pkcs8_wrap_nist_key(nist_key: &[u8], curve: EcCurve) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// Append a DER-encoded length value to the given buffer.
 fn add_der_len(buf: &mut Vec<u8>, len: usize) -> Result<()> {
     if len <= 0x7f {
         buf.push(len as u8)
     } else if len <= 0xff {
-        buf.push(0x81); // One length octet to come
+        buf.push(0x81);
         buf.push(len as u8);
     } else if len <= 0xffff {
-        buf.push(0x82); // Two length octets to come
+        buf.push(0x82);
         buf.push((len >> 8) as u8);
         buf.push((len & 0xff) as u8);
     } else {
@@ -211,40 +169,27 @@ fn add_der_len(buf: &mut Vec<u8>, len: usize) -> Result<()> {
     Ok(())
 }
 
-/// Plaintext key blob, with key characteristics.
 #[derive(PartialEq, Eq)]
 struct KeyBlob {
-    /// Raw key material.
     key_material: Vec<u8>,
-    /// Hardware-enforced key characteristics.
+
     hw_enforced: Vec<KeyParameter>,
-    /// Software-enforced key characteristics.
+
     sw_enforced: Vec<KeyParameter>,
 }
 
 impl KeyBlob {
-    /// Key blob version.
     const KEY_BLOB_VERSION: u8 = 0;
 
-    /// Hard-coded HMAC key used for keyblob authentication.
     const LEGACY_HMAC_KEY: &'static [u8] = b"IntegrityAssuredBlob0\0";
 
-    /// Size (in bytes) of appended MAC.
     const MAC_LEN: usize = 8;
 
-    /// Parse a serialized [`KeyBlob`].
     fn new_from_serialized(mut data: &[u8], hidden: &[KeyParameter]) -> Result<Self> {
-        // Keyblob needs to be at least long enough for:
-        // - version byte,
-        // - 4-byte len for key material
-        // - 4-byte len for hw_enforced params
-        // - 4-byte len for sw_enforced params
-        // - MAC tag.
         if data.len() < (1 + 3 * size_of::<u32>() + Self::MAC_LEN) {
             return Err(bloberr!("blob not long enough (len = {})", data.len()));
         }
 
-        // Check the HMAC in the last 8 bytes before doing anything else.
         let mac = &data[data.len() - Self::MAC_LEN..];
         let computed_mac = Self::compute_hmac(&data[..data.len() - Self::MAC_LEN], hidden)?;
         if mac != computed_mac {
@@ -259,7 +204,6 @@ impl KeyBlob {
         let hw_enforced = deserialize_params(&mut data)?;
         let sw_enforced = deserialize_params(&mut data)?;
 
-        // Should just be the (already-checked) MAC left.
         let rest = &data[Self::MAC_LEN..];
         if !rest.is_empty() {
             return Err(bloberr!("extra data (len {})", rest.len()));
@@ -271,9 +215,6 @@ impl KeyBlob {
         })
     }
 
-    /// Compute the authentication HMAC for a KeyBlob. This is built as:
-    ///   HMAC-SHA256(HK, data || serialize(hidden))
-    /// with HK = b"IntegrityAssuredBlob0\0".
     fn compute_hmac(data: &[u8], hidden: &[KeyParameter]) -> Result<Vec<u8>> {
         let hidden_data = serialize_params(hidden)?;
         let mut combined = data.to_vec();
@@ -284,10 +225,6 @@ impl KeyBlob {
     }
 }
 
-/// Build the parameters that are used as the hidden input to HMAC calculations:
-/// - `ApplicationId(data)` if present
-/// - `ApplicationData(data)` if present
-/// - (repeated) `RootOfTrust(rot)` where `rot` is a hardcoded piece of root of trust information.
 fn hidden_params(params: &[KeyParameter], rots: &[&[u8]]) -> Vec<KeyParameter> {
     let mut results = Vec::new();
     if let Some(app_id) = get_tag_value(params, Tag::APPLICATION_ID) {
@@ -311,7 +248,6 @@ fn hidden_params(params: &[KeyParameter], rots: &[&[u8]]) -> Vec<KeyParameter> {
     results
 }
 
-/// Retrieve a `u8` from the start of the given slice, if possible.
 fn consume_u8(data: &mut &[u8]) -> Result<u8> {
     match data.first() {
         Some(b) => {
@@ -322,9 +258,6 @@ fn consume_u8(data: &mut &[u8]) -> Result<u8> {
     }
 }
 
-/// Move past a bool value from the start of the given slice, if possible.
-/// Bool values should only be included if `true`, so fail if the value
-/// is anything other than 1.
 fn consume_bool(data: &mut &[u8]) -> Result<bool> {
     let b = consume_u8(data)?;
     if b == 0x01 {
@@ -334,41 +267,36 @@ fn consume_bool(data: &mut &[u8]) -> Result<bool> {
     }
 }
 
-/// Retrieve a (host-ordered) `u32` from the start of the given slice, if possible.
 fn consume_u32(data: &mut &[u8]) -> Result<u32> {
     const LEN: usize = size_of::<u32>();
     if data.len() < LEN {
         return Err(bloberr!("failed to find {LEN} bytes"));
     }
-    let chunk: [u8; LEN] = data[..LEN].try_into().unwrap(); // safe: just checked
+    let chunk: [u8; LEN] = data[..LEN].try_into().unwrap();
     *data = &(*data)[LEN..];
     Ok(u32::from_ne_bytes(chunk))
 }
 
-/// Retrieve a (host-ordered) `i32` from the start of the given slice, if possible.
 fn consume_i32(data: &mut &[u8]) -> Result<i32> {
     const LEN: usize = size_of::<i32>();
     if data.len() < LEN {
         return Err(bloberr!("failed to find {LEN} bytes"));
     }
-    let chunk: [u8; LEN] = data[..LEN].try_into().unwrap(); // safe: just checked
+    let chunk: [u8; LEN] = data[..LEN].try_into().unwrap();
     *data = &(*data)[4..];
     Ok(i32::from_ne_bytes(chunk))
 }
 
-/// Retrieve a (host-ordered) `i64` from the start of the given slice, if possible.
 fn consume_i64(data: &mut &[u8]) -> Result<i64> {
     const LEN: usize = size_of::<i64>();
     if data.len() < LEN {
         return Err(bloberr!("failed to find {LEN} bytes"));
     }
-    let chunk: [u8; LEN] = data[..LEN].try_into().unwrap(); // safe: just checked
+    let chunk: [u8; LEN] = data[..LEN].try_into().unwrap();
     *data = &(*data)[LEN..];
     Ok(i64::from_ne_bytes(chunk))
 }
 
-/// Retrieve a vector of bytes from the start of the given slice, if possible,
-/// with the length of the data expected to appear as a host-ordered `u32` prefix.
 fn consume_vec(data: &mut &[u8]) -> Result<Vec<u8>> {
     let len = consume_u32(data)? as usize;
     if len > data.len() {
@@ -379,11 +307,6 @@ fn consume_vec(data: &mut &[u8]) -> Result<Vec<u8>> {
     Ok(result)
 }
 
-/// Retrieve the contents of a tag of `TagType::Bytes`.  The `data` parameter holds
-/// the as-yet unparsed data, and a length and offset are read from this (and consumed).
-/// This length and offset refer to a location in the combined `blob_data`; however,
-/// the offset is expected to be the next unconsumed chunk of `blob_data`, as indicated
-/// by `next_blob_offset` (which itself is updated as a result of consuming the data).
 fn consume_blob(
     data: &mut &[u8],
     next_blob_offset: &mut usize,
@@ -391,7 +314,7 @@ fn consume_blob(
 ) -> Result<Vec<u8>> {
     let data_len = consume_u32(data)? as usize;
     let data_offset = consume_u32(data)? as usize;
-    // Expect the blob data to come from the next offset in the initial blob chunk.
+
     if data_offset != *next_blob_offset {
         return Err(bloberr!(
             "got blob offset {} instead of {}",
@@ -414,8 +337,6 @@ fn consume_blob(
     Ok(slice.to_vec())
 }
 
-/// Deserialize a collection of [`KeyParam`]s in legacy serialized format. The provided slice is
-/// modified to contain the unconsumed part of the data.
 fn deserialize_params(data: &mut &[u8]) -> Result<Vec<KeyParameter>> {
     let blob_data_size = consume_u32(data)? as usize;
     if blob_data_size > data.len() {
@@ -429,7 +350,6 @@ fn deserialize_params(data: &mut &[u8]) -> Result<Vec<KeyParameter>> {
     let blob_data = &data[..blob_data_size];
     let mut next_blob_offset = 0;
 
-    // Move past the blob data.
     *data = &data[blob_data_size..];
 
     let param_count = consume_u32(data)? as usize;
@@ -484,33 +404,9 @@ fn deserialize_params(data: &mut &[u8]) -> Result<Vec<KeyParameter>> {
     Ok(results)
 }
 
-/// Serialize a collection of [`KeyParameter`]s into a format that is compatible with previous
-/// implementations:
-///
-/// ```text
-/// [0..4]              Size B of `TagType::Bytes` data, in host order.
-/// [4..4+B]      (*)   Concatenated contents of each `TagType::Bytes` tag.
-/// [4+B..4+B+4]        Count N of the number of parameters, in host order.
-/// [8+B..8+B+4]        Size Z of encoded parameters.
-/// [12+B..12+B+Z]      Serialized parameters one after another.
-/// ```
-///
-/// Individual parameters are serialized in the last chunk as:
-///
-/// ```text
-/// [0..4]              Tag number, in host order.
-/// Followed by one of the following depending on the tag's `TagType`; all integers in host order:
-///   [4..5]            Bool value (`TagType::Bool`)
-///   [4..8]            i32 values (`TagType::Uint[Rep]`, `TagType::Enum[Rep]`)
-///   [4..12]           i64 values, in host order (`TagType::UlongRep`, `TagType::Date`)
-///   [4..8] + [8..12]  Size + offset of data in (*) above (`TagType::Bytes`, `TagType::Bignum`)
-/// ```
 fn serialize_params(params: &[KeyParameter]) -> Result<Vec<u8>> {
-    // First 4 bytes are the length of the combined [`TagType::Bytes`] data; come back to set that
-    // in a moment.
     let mut result = vec![0; 4];
 
-    // Next append the contents of all of the [`TagType::Bytes`] data.
     let mut blob_size = 0u32;
     for param in params {
         let tag_type = tag_type(&param.tag);
@@ -525,13 +421,13 @@ fn serialize_params(params: &[KeyParameter]) -> Result<Vec<u8>> {
             blob_size += v.len() as u32;
         }
     }
-    // Go back and fill in the combined blob length in native order at the start.
+
     result[..4].clone_from_slice(&blob_size.to_ne_bytes());
 
     result.extend_from_slice(&(params.len() as u32).to_ne_bytes());
 
     let params_size_offset = result.len();
-    result.extend_from_slice(&[0u8; 4]); // placeholder for size of elements
+    result.extend_from_slice(&[0u8; 4]);
     let first_param_offset = result.len();
     let mut blob_offset = 0u32;
     for param in params {
@@ -541,7 +437,6 @@ fn serialize_params(params: &[KeyParameter]) -> Result<Vec<u8>> {
                 return Err(bloberr!("invalid tag found in {:?}", param))
             }
 
-            // Enum-holding variants.
             KeyParameterValue::Algorithm(v) => {
                 result.extend_from_slice(&(v.0 as u32).to_ne_bytes())
             }
@@ -561,7 +456,6 @@ fn serialize_params(params: &[KeyParameter]) -> Result<Vec<u8>> {
                 result.extend_from_slice(&(v.0 as u32).to_ne_bytes())
             }
 
-            // Value-holding variants.
             KeyParameterValue::Integer(v) => result.extend_from_slice(&(*v as u32).to_ne_bytes()),
             KeyParameterValue::BoolValue(_v) => result.push(0x01u8),
             KeyParameterValue::LongInteger(v) | KeyParameterValue::DateTime(v) => {
@@ -579,7 +473,6 @@ fn serialize_params(params: &[KeyParameter]) -> Result<Vec<u8>> {
     }
     let serialized_size = (result.len() - first_param_offset) as u32;
 
-    // Go back and fill in the total serialized size.
     result[params_size_offset..params_size_offset + 4]
         .clone_from_slice(&serialized_size.to_ne_bytes());
     Ok(result)

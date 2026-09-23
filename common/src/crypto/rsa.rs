@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Functionality related to RSA.
-
 use super::{KeyMaterial, KeySizeInBits, OpaqueOr, RsaExponent};
 use crate::{km_err, tag, try_to_vec, Error, FallibleAllocExt};
 use der::asn1::BitStringRef;
@@ -24,15 +22,11 @@ use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo, SubjectPublicKeyInfoRef};
 use std::vec::Vec;
 use zeroize::ZeroizeOnDrop;
 
-/// Overhead for PKCS#1 v1.5 signature padding of undigested messages.  Digested messages have
-/// additional overhead, for the digest algorithmIdentifier required by PKCS#1.
 pub const PKCS1_UNDIGESTED_SIGNATURE_PADDING_OVERHEAD: usize = 11;
 
-/// OID value for PKCS#1-encoded RSA keys held in PKCS#8 and X.509; see RFC 3447 A.1.
 pub const X509_OID: pkcs8::ObjectIdentifier =
     pkcs8::ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
 
-/// OID value for PKCS#1 signature with SHA-256 and RSA, see RFC 4055 s5.
 pub const SHA256_PKCS1_SIGNATURE_OID: pkcs8::ObjectIdentifier =
     pkcs8::ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.11");
 
@@ -41,42 +35,10 @@ fn pkcs1_der_error(err: pkcs1::der::Error, context: core::fmt::Arguments<'_>) ->
     Error::from(crate::ErrorKind::Der(der::ErrorKind::Failed))
 }
 
-/// An RSA key, in the form of an ASN.1 DER encoding of an PKCS#1 `RSAPrivateKey` structure,
-/// as specified by RFC 3447 sections A.1.2 and 3.2:
-///
-/// ```asn1
-/// RSAPrivateKey ::= SEQUENCE {
-///     version           Version,
-///     modulus           INTEGER,  -- n
-///     publicExponent    INTEGER,  -- e
-///     privateExponent   INTEGER,  -- d
-///     prime1            INTEGER,  -- p
-///     prime2            INTEGER,  -- q
-///     exponent1         INTEGER,  -- d mod (p-1)
-///     exponent2         INTEGER,  -- d mod (q-1)
-///     coefficient       INTEGER,  -- (inverse of q) mod p
-///     otherPrimeInfos   OtherPrimeInfos OPTIONAL
-/// }
-///
-/// OtherPrimeInfos ::= SEQUENCE SIZE(1..MAX) OF OtherPrimeInfo
-///
-/// OtherPrimeInfo ::= SEQUENCE {
-///     prime             INTEGER,  -- ri
-///     exponent          INTEGER,  -- di
-///     coefficient       INTEGER   -- ti
-/// }
-/// ```
 #[derive(Clone, PartialEq, Eq, ZeroizeOnDrop)]
 pub struct Key(pub Vec<u8>);
 
 impl Key {
-    /// Return the `subjectPublicKey` that holds an ASN.1 DER-encoded `SEQUENCE`
-    /// as per RFC 3279 section 2.3.1:
-    ///     ```asn1
-    ///     RSAPublicKey ::= SEQUENCE {
-    ///        modulus            INTEGER,    -- n
-    ///        publicExponent     INTEGER  }  -- e
-    ///     ```
     pub fn subject_public_key(&self) -> Result<Vec<u8>, Error> {
         let rsa_pvt_key = RsaPrivateKey::from_der(self.0.as_slice())
             .map_err(|e| pkcs1_der_error(e, format_args!("failed to parse RsaPrivateKey")))?;
@@ -89,7 +51,6 @@ impl Key {
         Ok(encoded_data)
     }
 
-    /// Size of the key in bytes.
     pub fn size(&self) -> usize {
         let rsa_pvt_key = match RsaPrivateKey::from_der(self.0.as_slice()) {
             Ok(k) => k,
@@ -104,29 +65,6 @@ impl Key {
 }
 
 impl OpaqueOr<Key> {
-    /// Encode into `buf` the public key information as an ASN.1 DER encodable
-    /// `SubjectPublicKeyInfo`, as described in RFC 5280 section 4.1.
-    ///
-    /// ```asn1
-    /// SubjectPublicKeyInfo  ::=  SEQUENCE  {
-    ///    algorithm            AlgorithmIdentifier,
-    ///    subjectPublicKey     BIT STRING  }
-    ///
-    /// AlgorithmIdentifier  ::=  SEQUENCE  {
-    ///    algorithm               OBJECT IDENTIFIER,
-    ///    parameters              ANY DEFINED BY algorithm OPTIONAL  }
-    /// ```
-    ///
-    /// For RSA keys, the contents are described in RFC 3279 section 2.3.1.
-    ///
-    /// - The `AlgorithmIdentifier` has an algorithm OID of 1.2.840.113549.1.1.1.
-    /// - The `AlgorithmIdentifier` has `NULL` parameters.
-    /// - The `subjectPublicKey` bit string holds an ASN.1 DER-encoded `SEQUENCE`:
-    ///     ```asn1
-    ///     RSAPublicKey ::= SEQUENCE {
-    ///        modulus            INTEGER,    -- n
-    ///        publicExponent     INTEGER  }  -- e
-    ///     ```
     pub fn subject_public_key_info<'a>(
         &'a self,
         buf: &'a mut Vec<u8>,
@@ -145,24 +83,20 @@ impl OpaqueOr<Key> {
     }
 }
 
-/// RSA decryption mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecryptionMode {
-    /// No padding.
     NoPadding,
-    /// RSA-OAEP padding.
+
     OaepPadding {
-        /// Digest to use for the message
         msg_digest: Digest,
-        /// Digest to use in the MGF1 function.
+
         mgf_digest: Digest,
     },
-    /// PKCS#1 v1.5 padding.
+
     Pkcs1_1_5Padding,
 }
 
 impl DecryptionMode {
-    /// Determine the [`DecryptionMode`] from parameters.
     pub fn new(params: &[KeyParam]) -> Result<Self, Error> {
         let padding = tag::get_padding_mode(params)?;
         match padding {
@@ -185,19 +119,16 @@ impl DecryptionMode {
     }
 }
 
-/// RSA signature mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignMode {
-    /// No padding.
     NoPadding,
-    /// RSA-PSS signature scheme using the given digest.
+
     PssPadding(Digest),
-    /// PKCS#1 v1.5 padding using the given digest.
+
     Pkcs1_1_5Padding(Digest),
 }
 
 impl SignMode {
-    /// Determine the [`SignMode`] from parameters.
     pub fn new(params: &[KeyParam]) -> Result<Self, Error> {
         let padding = tag::get_padding_mode(params)?;
         match padding {
@@ -219,7 +150,6 @@ impl SignMode {
     }
 }
 
-/// Import an RSA key in PKCS#8 format, also returning the key size in bits and public exponent.
 pub fn import_pkcs8_key(data: &[u8]) -> Result<(KeyMaterial, KeySizeInBits, RsaExponent), Error> {
     let key_info = pkcs8::PrivateKeyInfoRef::try_from(data)
         .map_err(|_| km_err!(InvalidArgument, "failed to parse PKCS#8 RSA key"))?;
@@ -230,17 +160,15 @@ pub fn import_pkcs8_key(data: &[u8]) -> Result<(KeyMaterial, KeySizeInBits, RsaE
             key_info.algorithm.oid
         ));
     }
-    // For RSA, the inner private key is an ASN.1 `RSAPrivateKey`, as per PKCS#1 (RFC 3447 A.1.2).
+
     import_pkcs1_key(key_info.private_key.as_bytes())
 }
 
-/// Import an RSA key in PKCS#1 format, also returning the key size in bits and public exponent.
 pub fn import_pkcs1_key(
     private_key: &[u8],
 ) -> Result<(KeyMaterial, KeySizeInBits, RsaExponent), Error> {
     let key = Key(try_to_vec(private_key)?);
 
-    // Need to parse it to find size/exponent.
     let parsed_key = pkcs1::RsaPrivateKey::try_from(private_key)
         .map_err(|_| km_err!(InvalidArgument, "failed to parse inner PKCS#1 key"))?;
     let key_size = parsed_key.modulus.as_bytes().len() as u32 * 8;

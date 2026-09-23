@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Helper functionality for working with legacy tag serialization.
-
 use crate::{km_err, try_to_vec, vec_try, vec_try_with_capacity, Error, FallibleAllocExt};
 use core::cmp::Ordering;
 use core::convert::{TryFrom, TryInto};
@@ -26,7 +24,6 @@ use kmr_wire::{
 };
 use std::vec::Vec;
 
-/// Retrieve a `u8` from the start of the given slice, if possible.
 pub fn consume_u8(data: &mut &[u8]) -> Result<u8, Error> {
     match data.first() {
         Some(b) => {
@@ -37,9 +34,6 @@ pub fn consume_u8(data: &mut &[u8]) -> Result<u8, Error> {
     }
 }
 
-/// Move past a bool value from the start of the given slice, if possible.
-/// Bool values should only be included if `true`, so fail if the value
-/// is anything other than 1.
 pub fn consume_bool(data: &mut &[u8]) -> Result<(), Error> {
     let b = consume_u8(data)?;
     if b == 0x01 {
@@ -52,48 +46,42 @@ pub fn consume_bool(data: &mut &[u8]) -> Result<(), Error> {
     }
 }
 
-/// Retrieve a (host-ordered) `u32` from the start of the given slice, if possible.
 pub fn consume_u32(data: &mut &[u8]) -> Result<u32, Error> {
     if data.len() < 4 {
         return Err(km_err!(InvalidKeyBlob, "failed to find 4 bytes"));
     }
-    let chunk: [u8; 4] = data[..4].try_into().unwrap(); // safe: just checked
+    let chunk: [u8; 4] = data[..4].try_into().unwrap();
     *data = &(*data)[4..];
     Ok(u32::from_ne_bytes(chunk))
 }
 
-/// Retrieve a (host-ordered) `i32` from the start of the given slice, if possible.
 pub fn consume_i32(data: &mut &[u8]) -> Result<i32, Error> {
     if data.len() < 4 {
         return Err(km_err!(InvalidKeyBlob, "failed to find 4 bytes"));
     }
-    let chunk: [u8; 4] = data[..4].try_into().unwrap(); // safe: just checked
+    let chunk: [u8; 4] = data[..4].try_into().unwrap();
     *data = &(*data)[4..];
     Ok(i32::from_ne_bytes(chunk))
 }
 
-/// Retrieve a (host-ordered) `u64` from the start of the given slice, if possible.
 pub fn consume_u64(data: &mut &[u8]) -> Result<u64, Error> {
     if data.len() < 8 {
         return Err(km_err!(InvalidKeyBlob, "failed to find 8 bytes"));
     }
-    let chunk: [u8; 8] = data[..8].try_into().unwrap(); // safe: just checked
+    let chunk: [u8; 8] = data[..8].try_into().unwrap();
     *data = &(*data)[8..];
     Ok(u64::from_ne_bytes(chunk))
 }
 
-/// Retrieve a (host-ordered) `i64` from the start of the given slice, if possible.
 pub fn consume_i64(data: &mut &[u8]) -> Result<i64, Error> {
     if data.len() < 8 {
         return Err(km_err!(InvalidKeyBlob, "failed to find 8 bytes"));
     }
-    let chunk: [u8; 8] = data[..8].try_into().unwrap(); // safe: just checked
+    let chunk: [u8; 8] = data[..8].try_into().unwrap();
     *data = &(*data)[8..];
     Ok(i64::from_ne_bytes(chunk))
 }
 
-/// Retrieve a vector of bytes from the start of the given slice, if possible,
-/// with the length of the data is expected to appear as a host-ordered `u32` prefix.
 pub fn consume_vec(data: &mut &[u8]) -> Result<Vec<u8>, Error> {
     let len = consume_u32(data)? as usize;
     if len > data.len() {
@@ -104,37 +92,12 @@ pub fn consume_vec(data: &mut &[u8]) -> Result<Vec<u8>, Error> {
     Ok(result)
 }
 
-/// Serialize a collection of [`KeyParam`]s into a format that is compatible with previous
-/// implementations:
-///
-/// ```text
-/// [0..4]              Size B of `TagType::Bytes` data, in host order.
-/// [4..4+B]      (*)   Concatenated contents of each `TagType::Bytes` tag.
-/// [4+B..4+B+4]        Count N of the number of parameters, in host order.
-/// [8+B..8+B+4]        Size Z of encoded parameters.
-/// [12+B..12+B+Z]      Serialized parameters one after another.
-/// ```
-///
-/// Individual parameters are serialized in the last chunk as:
-///
-/// ```text
-/// [0..4]              Tag number, in host order.
-/// Followed by one of the following depending on the tag's `TagType`; all integers in host order:
-///   [4..5]            Bool value (`TagType::Bool`)
-///   [4..8]            i32 values (`TagType::Uint[Rep]`, `TagType::Enum[Rep]`)
-///   [4..12]           i64 values, in host order (`TagType::UlongRep`, `TagType::Date`)
-///   [4..8] + [8..12]  Size + offset of data in (*) above (`TagType::Bytes`, `TagType::Bignum`)
-/// ```
 pub fn serialize(params: &[KeyParam]) -> Result<Vec<u8>, Error> {
-    // First 4 bytes are the length of the combined [`TagType::Bytes`] data; come back to set that
-    // in a moment.
     let mut result = vec_try![0; 4]?;
 
-    // Next append the contents of all of the [`TagType::Bytes`] data.
     let mut blob_size = 0u32;
     for param in params {
         match param {
-            // Variants that hold `Vec<u8>`.
             KeyParam::ApplicationId(v)
             | KeyParam::ApplicationData(v)
             | KeyParam::AttestationChallenge(v)
@@ -159,19 +122,18 @@ pub fn serialize(params: &[KeyParam]) -> Result<Vec<u8>, Error> {
             _ => {}
         }
     }
-    // Go back and fill in the combined blob length in native order at the start.
+
     result[..4].clone_from_slice(&blob_size.to_ne_bytes());
 
     result.try_extend_from_slice(&(params.len() as u32).to_ne_bytes())?;
 
     let params_size_offset = result.len();
-    result.try_extend_from_slice(&[0u8; 4])?; // placeholder for size of elements
+    result.try_extend_from_slice(&[0u8; 4])?;
     let first_param_offset = result.len();
     let mut blob_offset = 0u32;
     for param in params {
         result.try_extend_from_slice(&(param.tag() as u32).to_ne_bytes())?;
         match &param {
-            // Enum-holding variants.
             KeyParam::Purpose(v) => result.try_extend_from_slice(&(*v as u32).to_ne_bytes())?,
             KeyParam::Algorithm(v) => result.try_extend_from_slice(&(*v as u32).to_ne_bytes())?,
             KeyParam::BlockMode(v) => result.try_extend_from_slice(&(*v as u32).to_ne_bytes())?,
@@ -186,7 +148,6 @@ pub fn serialize(params: &[KeyParam]) -> Result<Vec<u8>, Error> {
                 result.try_extend_from_slice(&(*v as u32).to_ne_bytes())?
             }
 
-            // `u32`-holding variants.
             KeyParam::KeySize(v) => result.try_extend_from_slice(&(v.0).to_ne_bytes())?,
             KeyParam::MinMacLength(v)
             | KeyParam::MaxUsesPerBoot(v)
@@ -201,11 +162,9 @@ pub fn serialize(params: &[KeyParam]) -> Result<Vec<u8>, Error> {
             | KeyParam::MacLength(v)
             | KeyParam::MaxBootLevel(v) => result.try_extend_from_slice(&v.to_ne_bytes())?,
 
-            // `u64`-holding variants.
             KeyParam::RsaPublicExponent(v) => result.try_extend_from_slice(&(v.0).to_ne_bytes())?,
             KeyParam::UserSecureId(v) => result.try_extend_from_slice(&(*v).to_ne_bytes())?,
 
-            // `true`-holding variants.
             KeyParam::CallerNonce
             | KeyParam::IncludeUniqueId
             | KeyParam::BootloaderOnly
@@ -220,7 +179,6 @@ pub fn serialize(params: &[KeyParam]) -> Result<Vec<u8>, Error> {
             | KeyParam::StorageKey
             | KeyParam::ResetSinceIdRotation => result.try_push(0x01u8)?,
 
-            // `DateTime`-holding variants.
             KeyParam::ActiveDatetime(v)
             | KeyParam::OriginationExpireDatetime(v)
             | KeyParam::UsageExpireDatetime(v)
@@ -230,7 +188,6 @@ pub fn serialize(params: &[KeyParam]) -> Result<Vec<u8>, Error> {
                 result.try_extend_from_slice(&(v.ms_since_epoch as u64).to_ne_bytes())?
             }
 
-            // `Vec<u8>`-holding variants.
             KeyParam::ApplicationId(v)
             | KeyParam::ApplicationData(v)
             | KeyParam::AttestationChallenge(v)
@@ -258,17 +215,11 @@ pub fn serialize(params: &[KeyParam]) -> Result<Vec<u8>, Error> {
     }
     let serialized_size = (result.len() - first_param_offset) as u32;
 
-    // Go back and fill in the total serialized size.
     result[params_size_offset..params_size_offset + 4]
         .clone_from_slice(&serialized_size.to_ne_bytes());
     Ok(result)
 }
 
-/// Retrieve the contents of a tag of `TagType::Bytes`.  The `data` parameter holds
-/// the as-yet unparsed data, and a length and offset are read from this (and consumed).
-/// This length and offset refer to a location in the combined `blob_data`; however,
-/// the offset is expected to be the next unconsumed chunk of `blob_data`, as indicated
-/// by `next_blob_offset` (which itself is updated as a result of consuming the data).
 fn consume_blob(
     data: &mut &[u8],
     next_blob_offset: &mut usize,
@@ -276,7 +227,7 @@ fn consume_blob(
 ) -> Result<Vec<u8>, Error> {
     let data_len = consume_u32(data)? as usize;
     let data_offset = consume_u32(data)? as usize;
-    // Expect the blob data to come from the next offset in the initial blob chunk.
+
     if data_offset != *next_blob_offset {
         return Err(km_err!(
             InvalidKeyBlob,
@@ -301,8 +252,6 @@ fn consume_blob(
     try_to_vec(slice)
 }
 
-/// Deserialize a collection of [`KeyParam`]s in legacy serialized format. The provided slice is
-/// modified to contain the unconsumed part of the data.
 pub fn deserialize(data: &mut &[u8]) -> Result<Vec<KeyParam>, Error> {
     let blob_data_size = consume_u32(data)? as usize;
     if blob_data_size > data.len() {
@@ -315,7 +264,6 @@ pub fn deserialize(data: &mut &[u8]) -> Result<Vec<KeyParam>, Error> {
     let blob_data = &data[..blob_data_size];
     let mut next_blob_offset = 0;
 
-    // Move past the blob data.
     *data = &data[blob_data_size..];
 
     let param_count = consume_u32(data)? as usize;
@@ -337,7 +285,6 @@ pub fn deserialize(data: &mut &[u8]) -> Result<Vec<KeyParam>, Error> {
             .map_err(|_e| km_err!(InvalidKeyBlob, "unknown tag {} encountered", tag_num))?;
         let enum_err = |_e| km_err!(InvalidKeyBlob, "unknown enum value for {:?}", tag);
         results.try_push(match tag {
-            // Enum-holding variants.
             Tag::Purpose => {
                 KeyParam::Purpose(<KeyPurpose>::try_from(consume_i32(data)?).map_err(enum_err)?)
             }
@@ -366,7 +313,6 @@ pub fn deserialize(data: &mut &[u8]) -> Result<Vec<KeyParam>, Error> {
                 <MlDsaVariant>::try_from(consume_i32(data)?).map_err(enum_err)?,
             ),
 
-            // `u32`-holding variants.
             Tag::KeySize => KeyParam::KeySize(KeySizeInBits(consume_u32(data)?)),
             Tag::MinMacLength => KeyParam::MinMacLength(consume_u32(data)?),
             Tag::MaxUsesPerBoot => KeyParam::MaxUsesPerBoot(consume_u32(data)?),
@@ -381,11 +327,9 @@ pub fn deserialize(data: &mut &[u8]) -> Result<Vec<KeyParam>, Error> {
             Tag::MacLength => KeyParam::MacLength(consume_u32(data)?),
             Tag::MaxBootLevel => KeyParam::MaxBootLevel(consume_u32(data)?),
 
-            // `u64`-holding variants.
             Tag::RsaPublicExponent => KeyParam::RsaPublicExponent(RsaExponent(consume_u64(data)?)),
             Tag::UserSecureId => KeyParam::UserSecureId(consume_u64(data)?),
 
-            // `true`-holding variants.
             Tag::CallerNonce => {
                 consume_bool(data)?;
                 KeyParam::CallerNonce
@@ -439,7 +383,6 @@ pub fn deserialize(data: &mut &[u8]) -> Result<Vec<KeyParam>, Error> {
                 KeyParam::ResetSinceIdRotation
             }
 
-            // `DateTime`-holding variants.
             Tag::ActiveDatetime => KeyParam::ActiveDatetime(DateTime {
                 ms_since_epoch: consume_i64(data)?,
             }),
@@ -459,7 +402,6 @@ pub fn deserialize(data: &mut &[u8]) -> Result<Vec<KeyParam>, Error> {
                 ms_since_epoch: consume_i64(data)?,
             }),
 
-            // `Vec<u8>`-holding variants.
             Tag::ApplicationId => {
                 KeyParam::ApplicationId(consume_blob(data, &mut next_blob_offset, blob_data)?)
             }
@@ -522,7 +464,7 @@ pub fn deserialize(data: &mut &[u8]) -> Result<Vec<KeyParam>, Error> {
             Tag::ModuleHash => {
                 KeyParam::ModuleHash(consume_blob(data, &mut next_blob_offset, blob_data)?)
             }
-            // Invalid variants.
+
             Tag::Invalid
             | Tag::HardwareType
             | Tag::MinSecondsBetweenOps
@@ -538,8 +480,6 @@ pub fn deserialize(data: &mut &[u8]) -> Result<Vec<KeyParam>, Error> {
     Ok(results)
 }
 
-/// Determine ordering of two [`KeyParam`] values for legacy key blob ordering.
-/// Invalid parameters are likely to compare equal.
 pub fn param_compare(left: &KeyParam, right: &KeyParam) -> Ordering {
     match (left, right) {
         (KeyParam::Purpose(l), KeyParam::Purpose(r)) => l.cmp(r),

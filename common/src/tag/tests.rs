@@ -39,15 +39,8 @@ fn test_characteristics_invalid() {
 fn test_legacy_serialization() {
     let tests = vec![(
         concat!(
-            "00000000", // blob data size
-            "03000000", // param count
-            "15000000", // param size
-            "02000010", // Tag::ALGORITHM = 268435458 = 0x10000002,
-            "20000000", // Algorithm::AES
-            "03000030", // Tag::KEY_SIZE = 805306371 = 0x30000003
-            "00010000", // size = 0x00000100
-            "fb010070", // Tag::TRUSTED_USER_PRESENCE_REQUIRED = 0x700001fb
-            "01",       // True
+            "00000000", "03000000", "15000000", "02000010", "20000000", "03000030", "00010000",
+            "fb010070", "01",
         ),
         vec![
             KeyParam::Algorithm(Algorithm::Aes),
@@ -105,19 +98,17 @@ fn test_luhn_checksum() {
 #[test]
 fn test_increment_imei() {
     let tests = vec![
-        // Anything that's not ASCII digits gives empty vec.
         ("", ""),
         ("01", ""),
         ("01", ""),
         ("7576", ""),
-        ("c328", ""),                 // Invalid UTF-8
-        ("18446844073709551613", ""), // 20-digit and bigger than u64::MAX == 18_446_744_073_709_551_615
-        // 721367498765404 => 721367498765412
+        ("c328", ""),
+        ("18446844073709551613", ""),
         (
             "373231333637343938373635343034",
             "373231333637343938373635343132",
         ),
-        ("39393930", "3130303039"), // String gets longer
+        ("39393930", "3130303039"),
     ];
     for (input, want) in tests {
         let input_data = hex::decode(input).unwrap();

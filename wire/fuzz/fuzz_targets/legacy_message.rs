@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Fuzzer for legacy request message parsing.
-
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    // `data` allegedly holds a legacy request message arrived from the non-secure world.
     let _ = kmr_wire::legacy::deserialize_trusty_req(data);
 });

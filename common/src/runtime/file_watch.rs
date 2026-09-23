@@ -152,10 +152,6 @@ where
         return Err(error);
     }
 
-    // Accept events for the configured file name *and* for the name it resolves
-    // to once symlinks are followed. When `path` is (or becomes) a symlink the
-    // kernel reports the write against the target's name, so matching only the
-    // literal name would silently drop every change and leave hot reload dead.
     let watched_names = {
         let mut names = vec![file_name.as_bytes().to_vec()];
         if let Ok(canonical) = fs::canonicalize(path) {
@@ -196,7 +192,9 @@ where
                 .unwrap_or_default();
 
             if (event.mask & libc::IN_Q_OVERFLOW) != 0
-                || watched_names.iter().any(|watched| watched.as_slice() == name)
+                || watched_names
+                    .iter()
+                    .any(|watched| watched.as_slice() == name)
             {
                 if let Some(candidate) = WatchTrigger::from_inotify_mask(event.mask) {
                     reload_trigger = Some(reload_trigger.map_or(candidate, |current| {

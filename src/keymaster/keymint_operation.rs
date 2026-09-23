@@ -12,8 +12,7 @@ pub struct KeyMintOperation {
     wrapper: KeyMintWrapper,
     pub challenge: i64,
     pub params: Vec<KeyParam>,
-    // Extra for internal use: returned by bottom half of KeyMint implementation, used on
-    // all subsequent operation methods to identify the operation.
+
     pub op_handle: i64,
 }
 

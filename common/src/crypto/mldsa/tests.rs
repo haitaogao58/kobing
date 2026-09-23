@@ -12,35 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! ML-DSA unit tests.
 use super::*;
 
-/// Private key seed.
 const PKCS8_SEED_65_DATA: &str = concat!(
-    "3034",               // SEQUENCE len x34 {
-    "020100",             // INTEGER 0 (Version)
-    "300b",               // SEQUENCE len 11 (privateKeyAlgorithm) {
-    "0609",               // OBJECT_IDENTIFIER len 9
-    "608648016503040312", //  2.16.840.1.101.3.4.3.18
-    // }
-    "0422",                                                             // OCTET STRING len 34
-    "8020",                                                             // tag 0 primitive len 32
-    "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"  // seed value
+    "3034",
+    "020100",
+    "300b",
+    "0609",
+    "608648016503040312",
+    "0422",
+    "8020",
+    "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 );
 
-/// Private key encoded with both seed and an (invalid) expanded key.
 const PKCS8_BOTH_65_DATA: &str = concat!(
-    "303c",               // SEQUENCE len x3c {
-    "020100",             // INTEGER 0 (Version)
-    "300b",               // SEQUENCE len 11 (privateKeyAlgorithm) {
-    "0609",               // OBJECT_IDENTIFIER len 9
-    "608648016503040312", //  2.16.840.1.101.3.4.3.18
-    // }
-    "042a", // OCTET STRING len 42 {
-    "3028", // SEQUENCE len 40
-    "0420", // OCTET STRING len 32
+    "303c",
+    "020100",
+    "300b",
+    "0609",
+    "608648016503040312",
+    "042a",
+    "3028",
+    "0420",
     "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-    "0404", // OCTET STRING len 4 (invalid)
+    "0404",
     "deadbeef"
 );
 
@@ -72,38 +67,35 @@ fn parse_pkcs8_both_fail() {
 #[test]
 fn parse_pkcs8_failures() {
     let tests = [
-        // Invalid seed format
         concat!(
             "801f",
             "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e"
-        ), // too short
+        ),
         concat!(
             "8020",
             "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e"
-        ), // len mismatch
+        ),
         concat!(
             "8021",
             "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        ), // len mismatch
+        ),
         concat!(
             "8021",
             "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
-        ), // too long
-        "8000", // empty
-        // Invalid both format
+        ),
+        "8000",
         concat!(
             "3027",
-            "041f", // too short
+            "041f",
             "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e",
             "0401aa"
         ),
         concat!(
             "3029",
-            "0421", // too long
+            "0421",
             "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
             "0401aa"
         ),
-        // Unexpected OCTET STRING (e.g. an expanded key)
         concat!(
             "0420",
             "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"

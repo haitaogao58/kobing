@@ -260,7 +260,6 @@ unsafe fn operation_binder_node_exists(
 ) -> Result<bool, c_int> {
     let target = probe.target;
     let mut info = binder_node_debug_info {
-        // Binder returns the first node whose ptr is strictly greater than the cursor.
         ptr: target.ptr.checked_sub(1).ok_or(libc::EINVAL)?,
         ..Default::default()
     };

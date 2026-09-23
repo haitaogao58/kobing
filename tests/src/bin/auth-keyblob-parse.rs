@@ -12,10 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Utility program to parse a legacy authenticated keyblob.
-
-// Explicitly include alloc because macros from `kmr_common` assume it.
-
 use kmr_common::{
     crypto::*,
     get_tag_value,
@@ -45,7 +41,6 @@ fn main() {
 
 const SOFTWARE_ROOT_OF_TRUST: &[u8] = b"SW";
 
-/// Remove all instances of some tags from a set of `KeyParameter`s.
 pub fn remove_tags(params: &[KeyParam], tags: &[keymint::Tag]) -> Vec<KeyParam> {
     params
         .iter()
@@ -91,14 +86,12 @@ fn process(filename: &str, hex: bool) {
         keyblob.sw_enforced
     );
 
-    // Also round-trip the keyblob to binary and expect to get back where we started.
     let regenerated_data = keyblob.serialize(&hmac, &hidden).unwrap();
     assert_eq!(
         &regenerated_data[..regenerated_data.len()],
         &data[..data.len()]
     );
 
-    // Create a PlaintextKeyBlob from the data.
     let mut combined = keyblob.hw_enforced.clone();
     combined.extend_from_slice(&keyblob.sw_enforced);
 
@@ -144,12 +137,6 @@ fn process(filename: &str, hex: bool) {
         Algorithm::MlDsa => panic!("ML-DSA unsupported"),
     };
 
-    // Test the `tag::extract_key_characteristics()` entrypoint by comparing what it
-    // produces against the keyblob's combined characteristics. To do this, we need
-    // to simulate a key-generation operation by:
-    // - removing the KeyMint-added tags
-    // - removing any Keystore-enforced tags
-    // - adding any tags required for key generation.
     let mut filtered = keyblob.hw_enforced.clone();
     filtered.extend_from_slice(&keyblob.sw_enforced);
     let filtered = remove_tags(&filtered, tag::AUTO_ADDED_CHARACTERISTICS);

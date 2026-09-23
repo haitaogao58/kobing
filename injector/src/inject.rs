@@ -127,10 +127,8 @@ pub fn inject_library(pid: Pid) -> Result<()> {
         }
     };
 
-    // Run actual injection; regardless of success/failure we MUST restore regs and detach
     let result = do_inject(pid, &self_path);
 
-    // === CLEANUP: Always restore registers and detach ===
     debug!("restoring registers and detaching");
     let mut cleanup_errors = Vec::new();
     if let Err(e) = sys::set_regs(pid, &backup_regs) {
@@ -161,14 +159,11 @@ fn do_inject(pid: Pid, self_path: &std::path::Path) -> Result<()> {
     let local_maps = lsplt_rs::MapInfo::scan("self");
     let remote_maps = lsplt_rs::MapInfo::scan(pid.as_raw().to_string().as_str());
 
-    // Helper closure to resolve function address
     let resolve = |lib: &str, name: &str| -> Result<usize> {
         utils::resolve_func_addr(&local_maps, &remote_maps, lib, name)
             .or_else(|_| utils::resolve_func_addr(&local_maps, &remote_maps, "libc.so", name))
-        // Fallback to libc for newer android
     };
 
-    // Helper to push data to remote stack and update regs SP
     let mut push_to_remote_stack = |data: &[u8]| -> Result<usize> {
         let sp = {
             #[cfg(target_arch = "x86_64")]
@@ -195,11 +190,9 @@ fn do_inject(pid: Pid, self_path: &std::path::Path) -> Result<()> {
         let write_base = new_sp
             .checked_add(data.len())
             .context("aligned remote stack write overflow")?;
-        // Keep the remote scratch allocations 16-byte aligned like the reference
-        // injector. Ancillary socket control buffers are sensitive to layout.
+
         let new_sp = sys::push_stack(pid, write_base, data)?;
 
-        // Update local regs copy
         #[cfg(target_arch = "x86_64")]
         {
             regs.rsp = new_sp as u64;
@@ -217,7 +210,6 @@ fn do_inject(pid: Pid, self_path: &std::path::Path) -> Result<()> {
             regs.uregs[13] = new_sp as u32;
         }
 
-        // Commit SP change to remote process so subsequent remote_call works correctly
         sys::set_regs(pid, &regs)?;
         debug!(
             "remote scratch push: size={} old_sp=0x{:x} new_sp=0x{:x} align={}",
@@ -369,8 +361,6 @@ fn do_inject(pid: Pid, self_path: &std::path::Path) -> Result<()> {
     let remote_loader_path_c = CString::new(payload_identifier.as_str())?;
     let remote_path_ptr = push_to_remote_stack(remote_loader_path_c.as_bytes_with_nul())?;
 
-    // Call dlopen
-    // args: filename, flags (RTLD_NOW=2), extinfo
     let handle = sys::remote_call(
         pid,
         dlopen_addr,

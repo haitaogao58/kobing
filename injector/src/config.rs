@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Duration;
 
 pub const DEFAULT_CONFIG_PATH: &str = "/data/surprise/injector.toml";
-/// Authoritative package allow-list file (one package per line).
+
 pub const DEFAULT_BM_PATH: &str = "/data/surprise/bm.txt";
 const CURRENT_CONFIG_VERSION: u32 = 1;
 const REPLACE_SAVE_RETRY_INTERVAL: Duration = Duration::from_millis(100);
@@ -24,9 +24,7 @@ const REPLACE_SAVE_RETRY_LIMIT: usize = 10;
 #[serde(default, deny_unknown_fields)]
 pub struct InjectorConfig {
     pub version: u32,
-    /// Package allow-list. The authoritative source is `bm.txt` (one package
-    /// per line); the legacy `scoop = [...]` array in `injector.toml` is still
-    /// accepted for migration but is never written back.
+
     pub scoop: Vec<String>,
     pub main: MainConfig,
     pub filter: FilterConfig,
@@ -151,7 +149,6 @@ enum LoadContext {
     Reload(WatchTrigger),
 }
 
- 
 #[derive(Deserialize)]
 struct ConfigVersion {
     version: Option<toml::Spanned<i64>>,
@@ -250,8 +247,6 @@ fn load_from_path(path: &Path, allow_migration: bool) -> Result<InjectorConfig, 
     load_from_path_with_bm(path, allow_migration, &bm_path())
 }
 
-/// Same as [`load_from_path`] but with an explicit bm.txt path so tests can
-/// isolate the real package allow-list on disk.
 fn load_from_path_with_bm(
     path: &Path,
     allow_migration: bool,
@@ -270,23 +265,18 @@ fn load_from_path_with_bm(
     let (mut config, migrated_contents) =
         parse_versioned_config(&contents, allow_migration).map_err(LoadError::Parse)?;
 
-    // The package allow-list lives in bm.txt, not in injector.toml.
     match read_bm_packages(bm) {
         Ok(packages) => config.scoop = normalize_packages(packages),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            // First run without bm.txt: keep the legacy `scoop` array and seed
-            // bm.txt from it so the package list survives the transition.
             if config.scoop.is_empty() {
                 config.scoop = default_scoop();
             }
             if allow_migration {
                 match write_bm_packages(bm, &config.scoop) {
                     Ok(()) => log::info!("seeded bm.txt at {}", bm.display()),
-                    Err(write_error) => log::error!(
-                        "failed to seed bm.txt at {}: {}",
-                        bm.display(),
-                        write_error
-                    ),
+                    Err(write_error) => {
+                        log::error!("failed to seed bm.txt at {}: {}", bm.display(), write_error)
+                    }
                 }
             }
         }
@@ -311,7 +301,6 @@ fn load_from_path_with_bm(
         .map_err(LoadError::Io)?;
         log::info!("migrated injector.toml to version {CURRENT_CONFIG_VERSION}");
     } else if allow_migration && has_legacy_scoop_key(&contents) {
-        // Drop the stale `scoop` array now that packages are read from bm.txt.
         let cleaned = render_config(&config).map_err(LoadError::Io)?;
         let (default_uid, default_gid) = default_owner(path);
         atomic_replace_preserving_metadata(
@@ -463,8 +452,7 @@ fn parse_versioned_config(
 ) -> Result<(InjectorConfig, Option<String>), String> {
     let without_bom = contents.strip_prefix('\u{feff}').unwrap_or(contents);
     let bom_len = contents.len() - without_bom.len();
-    let version: ConfigVersion =
-        toml::from_str(without_bom).map_err(|error| error.to_string())?;
+    let version: ConfigVersion = toml::from_str(without_bom).map_err(|error| error.to_string())?;
     let migrated = match version.version {
         None => {
             if !allow_migration {
@@ -499,8 +487,7 @@ fn parse_versioned_config(
     };
     let candidate = migrated.as_deref().unwrap_or(contents);
     let candidate = candidate.strip_prefix('\u{feff}').unwrap_or(candidate);
-    let parsed: InjectorConfig =
-        toml::from_str(candidate).map_err(|error| error.to_string())?;
+    let parsed: InjectorConfig = toml::from_str(candidate).map_err(|error| error.to_string())?;
     Ok((parsed.normalized(), migrated))
 }
 
@@ -530,7 +517,6 @@ fn normalize_packages(packages: Vec<String>) -> Vec<String> {
     normalized
 }
 
- 
 fn start_watcher(path: PathBuf) {
     let reload_path = path.clone();
     if let Err(error) =
@@ -544,11 +530,9 @@ fn start_watcher(path: PathBuf) {
 fn start_bm_watcher() {
     let bm = bm_path();
     let reload_path = config_path();
-    if let Err(error) =
-        file_watch::spawn_path_watcher("injector-bm-watch", bm, move |trigger| {
-            reload_runtime_config(&reload_path, trigger);
-        })
-    {
+    if let Err(error) = file_watch::spawn_path_watcher("injector-bm-watch", bm, move |trigger| {
+        reload_runtime_config(&reload_path, trigger);
+    }) {
         log::error!("failed to start bm.txt watcher thread: {}", error);
     }
 }

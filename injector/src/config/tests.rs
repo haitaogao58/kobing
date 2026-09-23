@@ -70,9 +70,6 @@ fn config_defaults_and_log_levels_match_contract() {
 
 #[test]
 fn parses_legacy_scoop_array_from_toml() {
-    // `scoop` is still accepted from injector.toml for migration, but the
-    // authoritative package list lives in bm.txt. Parsing must keep deduping
-    // the array so old configs survive the transition.
     let parsed = parse_config(
         r#"
 scoop = ["com.example.app", "com.other.app", "com.example.app"]
@@ -147,8 +144,7 @@ allow_packages = ["com.legacy.app"]
 fn rendered_config_omits_package_list() {
     let config = InjectorConfig::default();
     let rendered = render_config(&config).expect("config should render");
-    // The package allow-list now lives in bm.txt, so it must not be emitted
-    // back into injector.toml.
+
     assert!(!rendered.contains("scoop"));
     assert!(rendered.contains("bm.txt"));
     let reparsed = parse_config(&rendered).expect("rendered config should parse");
@@ -193,8 +189,6 @@ fn v0_config_migrates_and_preserves_mode() {
     fs::write(&*path, v0).unwrap();
     fs::set_permissions(&*path, fs::Permissions::from_mode(0o640)).unwrap();
 
-    // Isolate bm.txt so the test never reads the real allow-list that may
-    // exist on the device (/data/surprise/bm.txt).
     let bm = temp_bm_path("v0-migration");
     let loaded = load_from_path_with_bm(&path, true, &bm).expect("v0 config should migrate");
     assert_eq!(loaded.version, CURRENT_CONFIG_VERSION);

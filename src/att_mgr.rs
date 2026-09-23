@@ -63,7 +63,6 @@ impl RetrieveAttestationIds for AttestationIdMgr {
     }
 
     fn destroy_all(&mut self) -> Result<(), kmr_common::Error> {
-        // ignore this
         Ok(())
     }
 }

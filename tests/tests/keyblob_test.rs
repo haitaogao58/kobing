@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Explicitly include alloc because macros from `kmr_common` assume it.
-
 use kmr_common::{crypto, crypto::Rng, expect_err, keyblob, keyblob::legacy::KeyBlob};
 use kmr_crypto_boring::aes::BoringAes;
 use kmr_crypto_boring::eq::BoringEq;
@@ -69,20 +67,12 @@ fn test_serialize_authenticated_legacy_keyblob() {
     let hidden = kmr_common::keyblob::legacy::hidden(&[], &[b"SW"]).unwrap();
     let tests = vec![(
         concat!(
-            "00", // version
+            "00",
             "02000000",
-            "bbbb", // key material
-            concat!(
-                "00000000", // no blob data
-                "00000000", // no params
-                "00000000", // zero size of params
-            ),
-            concat!(
-                "00000000", // no blob data
-                "00000000", // no params
-                "00000000", // zero size of params
-            ),
-            "0000000000000000", // hmac
+            "bbbb",
+            concat!("00000000", "00000000", "00000000",),
+            concat!("00000000", "00000000", "00000000",),
+            "0000000000000000",
         ),
         KeyBlob {
             key_material: vec![0xbb, 0xbb],
@@ -93,7 +83,6 @@ fn test_serialize_authenticated_legacy_keyblob() {
     for (hex_data, want) in tests {
         let mut data = hex::decode(hex_data).unwrap();
 
-        // Key blob cannot be deserialized without a correct MAC.
         let hmac = BoringHmac {};
         let result = KeyBlob::deserialize(&hmac, &data, &hidden, BoringEq);
         expect_err!(result, "invalid key blob");
@@ -112,40 +101,24 @@ fn test_deserialize_authenticated_legacy_keyblob_fail() {
     let tests = vec![
         (
             concat!(
-                "02", // version
+                "02",
                 "02000000",
-                "bbbb", // key material
-                concat!(
-                    "00000000", // no blob data
-                    "00000000", // no params
-                    "00000000", // zero size of params
-                ),
-                concat!(
-                    "00000000", // no blob data
-                    "00000000", // no params
-                    "00000000", // zero size of params
-                ),
-                "0000000000000000", // hmac
+                "bbbb",
+                concat!("00000000", "00000000", "00000000",),
+                concat!("00000000", "00000000", "00000000",),
+                "0000000000000000",
             ),
             "unexpected blob version 2",
         ),
         (
             concat!(
-                "00", // version
+                "00",
                 "02000000",
-                "bbbb", // key material
-                concat!(
-                    "00000000", // no blob data
-                    "00000000", // no params
-                    "00000000", // zero size of params
-                ),
-                concat!(
-                    "00000000", // no blob data
-                    "00000000", // no params
-                    "00000000", // zero size of params
-                ),
-                "00",               // bonus byte
-                "0000000000000000", // hmac
+                "bbbb",
+                concat!("00000000", "00000000", "00000000",),
+                concat!("00000000", "00000000", "00000000",),
+                "00",
+                "0000000000000000",
             ),
             "extra data (len 1)",
         ),
@@ -163,20 +136,12 @@ fn test_deserialize_authenticated_legacy_keyblob_fail() {
 fn test_deserialize_authenticated_legacy_keyblob_truncated() {
     let hidden = kmr_common::keyblob::legacy::hidden(&[], &[b"SW"]).unwrap();
     let mut data = hex::decode(concat!(
-        "00", // version
+        "00",
         "02000000",
-        "bbbb", // key material
-        concat!(
-            "00000000", // no blob data
-            "00000000", // no params
-            "00000000", // zero size of params
-        ),
-        concat!(
-            "00000000", // no blob data
-            "00000000", // no params
-            "00000000", // zero size of params
-        ),
-        "0000000000000000", // hmac
+        "bbbb",
+        concat!("00000000", "00000000", "00000000",),
+        concat!("00000000", "00000000", "00000000",),
+        "0000000000000000",
     ))
     .unwrap();
     fix_hmac(&mut data, &hidden);
@@ -184,7 +149,6 @@ fn test_deserialize_authenticated_legacy_keyblob_truncated() {
     assert!(KeyBlob::deserialize(&hmac, &data, &hidden, BoringEq).is_ok());
 
     for len in 0..data.len() - 1 {
-        // Any truncation of this data is invalid.
         assert!(
             KeyBlob::deserialize(&hmac, &data[..len], &hidden, BoringEq).is_err(),
             "deserialize of data[..{}] subset (len={}) unexpectedly succeeded",

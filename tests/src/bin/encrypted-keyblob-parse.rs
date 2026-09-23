@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Utility program to parse a legacy encrypted keyblob (but not decrypt it).
-
 use kmr_common::keyblob::legacy::EncryptedKeyBlob;
 
 fn main() {
@@ -79,7 +77,6 @@ fn process(filename: &str, hex: bool) {
     }
     println!("}}");
 
-    // Also round-trip the keyblob to binary.
     let regenerated_data = keyblob.serialize().unwrap();
     assert_eq!(regenerated_data, data);
 }

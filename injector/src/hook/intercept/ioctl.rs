@@ -139,8 +139,7 @@ pub(in crate::hook) unsafe fn new_ioctl(fd: c_int, request: c_int, arg: *mut c_v
     let driver_write_consumed = bwr.write_consumed;
     let driver_read_consumed = bwr.read_consumed;
     let write_consumption_valid = driver_write_consumed <= write_remaining;
-    // binder_ioctl_write_read() resets read_consumed when the write phase fails,
-    // even when userspace supplied an accumulated non-zero value.
+
     let read_consumption_reset =
         ioctl_error.is_some() && write_remaining > 0 && driver_read_consumed == 0;
     let read_consumption_valid = read_consumption_reset

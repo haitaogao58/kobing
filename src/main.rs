@@ -37,7 +37,6 @@ pub mod utils;
 pub mod watchdog;
 
 include!(concat!(env!("OUT_DIR"), "/aidl.rs"));
-// include!( "./aidl.rs"); // for development only
 
 fn storage_warn(message: String) {
     if log::log_enabled!(log::Level::Warn) {
@@ -205,7 +204,6 @@ fn install_module_info_bundle_if_available() -> Result<()> {
         return Ok(());
     }
 
-    // We can no longer resolve module info after dropping privileges.
     debug!("resolving APEX module info with root privileges");
     match crate::keymaster::apex::resolve_module_info_bundle() {
         Ok(bundle) => {

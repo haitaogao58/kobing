@@ -12,13 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This module implements the handling of async tasks.
-//! The worker thread has a high priority and a low priority queue. Adding a job to either
-//! will cause one thread to be spawned if none exists. As a compromise between performance
-//! and resource consumption, the thread will linger for about 30 seconds after it has
-//! processed all tasks before it terminates.
-//! Note that low priority tasks are processed only when the high priority queue is empty.
-
 use std::{any::Any, any::TypeId, time::Duration};
 use std::{
     collections::{HashMap, VecDeque},
@@ -36,43 +29,34 @@ enum State {
     Running,
 }
 
-/// The Shelf allows async tasks to store state across invocations.
-/// Note: Store elves at your own peril ;-).
 #[derive(Debug, Default)]
 pub struct Shelf(HashMap<TypeId, Box<dyn Any + Send>>);
 
 impl Shelf {
-    /// Get a reference to the shelved data of type T. Returns Some if the data exists.
     pub fn get_downcast_ref<T: Any + Send>(&self) -> Option<&T> {
         self.0
             .get(&TypeId::of::<T>())
             .and_then(|v| v.downcast_ref::<T>())
     }
 
-    /// Get a mutable reference to the shelved data of type T. If a T was inserted using put,
-    /// get_mut, or get_or_put_with.
     pub fn get_downcast_mut<T: Any + Send>(&mut self) -> Option<&mut T> {
         self.0
             .get_mut(&TypeId::of::<T>())
             .and_then(|v| v.downcast_mut::<T>())
     }
 
-    /// Remove the entry of the given type and returns the stored data if it existed.
     pub fn remove_downcast_ref<T: Any + Send>(&mut self) -> Option<T> {
         self.0
             .remove(&TypeId::of::<T>())
             .and_then(|v| v.downcast::<T>().ok().map(|b| *b))
     }
 
-    /// Puts data `v` on the shelf. If there already was an entry of type T it is returned.
     pub fn put<T: Any + Send>(&mut self, v: T) -> Option<T> {
         self.0
             .insert(TypeId::of::<T>(), Box::new(v) as Box<dyn Any + Send>)
             .and_then(|v| v.downcast::<T>().ok().map(|b| *b))
     }
 
-    /// Gets a mutable reference to the entry of the given type and default creates it if necessary.
-    /// The type must implement Default.
     pub fn get_mut<T: Any + Send + Default>(&mut self) -> &mut T {
         self.0
             .entry(TypeId::of::<T>())
@@ -81,8 +65,6 @@ impl Shelf {
             .unwrap()
     }
 
-    /// Gets a mutable reference to the entry of the given type or creates it using the init
-    /// function. Init is not executed if the entry already existed.
     pub fn get_or_put_with<T: Any + Send, F>(&mut self, init: F) -> &mut T
     where
         F: FnOnce() -> T,
@@ -105,16 +87,10 @@ struct AsyncTaskState {
     hi_prio_req: VecDeque<QueuedFn>,
     lo_prio_req: VecDeque<QueuedFn>,
     idle_fns: Vec<IdleFn>,
-    /// The store allows tasks to store state across invocations. It is passed to each invocation
-    /// of each task. Tasks need to cooperate on the ids they use for storing state.
+
     shelf: Option<Shelf>,
 }
 
-/// AsyncTask spawns one worker thread on demand to process jobs inserted into
-/// a low and a high priority work queue. The queues are processed FIFO, and low
-/// priority queue is processed if the high priority queue is empty.
-/// Note: Because there is only one worker thread at a time for a given AsyncTask instance,
-/// all scheduled requests are guaranteed to be serialized with respect to one another.
 pub struct AsyncTask {
     state: Arc<(Condvar, Mutex<AsyncTaskState>)>,
 }
@@ -126,7 +102,6 @@ impl Default for AsyncTask {
 }
 
 impl AsyncTask {
-    /// Construct an [`AsyncTask`] with a specific timeout value.
     pub fn new(timeout: Duration) -> Self {
         Self {
             state: Arc::new((
@@ -144,9 +119,6 @@ impl AsyncTask {
         }
     }
 
-    /// Adds a one-off job to the high priority queue. High priority jobs are
-    /// completed before low priority jobs and can also overtake low priority
-    /// jobs. But they cannot preempt them.
     pub fn queue_hi<F>(&self, f: F)
     where
         F: for<'r> FnOnce(&'r mut Shelf) + Send + 'static,
@@ -154,10 +126,6 @@ impl AsyncTask {
         self.queue(f, true)
     }
 
-    /// Adds a one-off job to the low priority queue. Low priority jobs are
-    /// completed after high priority. And they are not executed as long as high
-    /// priority jobs are present. Jobs always run to completion and are never
-    /// preempted by high priority jobs.
     pub fn queue_lo<F>(&self, f: F)
     where
         F: FnOnce(&mut Shelf) + Send + 'static,
@@ -165,8 +133,6 @@ impl AsyncTask {
         self.queue(f, false)
     }
 
-    /// Adds an idle callback. This will be invoked whenever the worker becomes
-    /// idle (all high and low priority jobs have been performed).
     pub fn add_idle<F>(&self, f: F)
     where
         F: Fn(&mut Shelf) + Send + Sync + 'static,
@@ -183,9 +149,6 @@ impl AsyncTask {
         self.queue_if(|_state| true, f, hi_prio);
     }
 
-    /// Add the job `f` to the specified queue, but only if the `condition`  closure returns `true`.
-    ///
-    /// Returns an indication of whether the job was queued or not.
     fn queue_if<C, F>(&self, condition: C, f: F, hi_prio: bool) -> bool
     where
         C: FnOnce(&AsyncTaskState) -> bool,
@@ -213,10 +176,6 @@ impl AsyncTask {
         true
     }
 
-    /// Add a one-off job to the high-priority queue, but only if there is already current
-    /// work (the worker thread is running or there is work queued).
-    ///
-    /// Returns an indication of whether the job was queued or not.
     pub fn queue_hi_if_running<F>(&self, f: F) -> bool
     where
         F: FnOnce(&mut Shelf) + Send + 'static,
@@ -237,10 +196,6 @@ impl AsyncTask {
         let timeout_period = state.timeout;
 
         state.thread = Some(thread::spawn(move || {
-            // This spawned thread may inherit the priority of the thread that triggered the async
-            // work, and that triggering thread may in turn have inherited the priority of a client
-            // via a Binder transaction.  Make sure this new thread's priority is at least the
-            // default.
             if crate::keymaster::flags::renice_async_task() {
                 crate::keymaster::utils::self_renice(0);
             }
@@ -253,16 +208,13 @@ impl AsyncTask {
             }
             let mut done_idle = false;
 
-            // When the worker starts, it takes the shelf and puts it on the stack.
             let mut shelf = state.lock().unwrap().shelf.take().unwrap_or_default();
             loop {
                 if let Some(action) = {
                     let state = state.lock().unwrap();
                     if !done_idle && state.hi_prio_req.is_empty() && state.lo_prio_req.is_empty() {
-                        // No jobs queued so invoke the idle callbacks.
                         Some(Action::IdleFns(state.idle_fns.clone()))
                     } else {
-                        // Wait for either a queued job to arrive or a timeout.
                         let (mut state, timeout) = condvar
                             .wait_timeout_while(state, timeout_period, |state| {
                                 state.hi_prio_req.is_empty() && state.lo_prio_req.is_empty()
@@ -278,9 +230,6 @@ impl AsyncTask {
                                 state.lo_prio_req.pop_front().map(|f| Action::QueuedFn(f))
                             }
                             (None, true, true) => {
-                                // When the worker exits it puts the shelf back into the shared
-                                // state for the next worker to use. So state is preserved not
-                                // only across invocations but also across worker thread shut down.
                                 state.shelf = Some(shelf);
                                 state.state = State::Exiting;
                                 break;
@@ -289,7 +238,6 @@ impl AsyncTask {
                         }
                     }
                 } {
-                    // Now that the lock has been dropped, perform the action.
                     match action {
                         Action::QueuedFn(f) => {
                             f(&mut shelf);

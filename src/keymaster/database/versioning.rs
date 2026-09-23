@@ -37,12 +37,6 @@ fn create_or_get_version(tx: &Transaction, current_version: u32) -> Result<u32> 
     let version = if let Some(version) = version {
         version
     } else {
-        // If no version table existed it could mean one of two things:
-        // 1) This database is completely new. In this case the version has to be set
-        //    to the current version and the current version which also needs to be
-        //    returned.
-        // 2) The database predates db versioning. In this case the version needs to be
-        //    set to 0, and 0 needs to be returned.
         let version = if tx
             .query_row(
                 "SELECT name FROM persistent.sqlite_master
@@ -172,11 +166,8 @@ mod test {
                         tx.commit().unwrap();
                     }
 
-                    // In the legacy database case all upgraders starting from 0 have to run. So
-                    // after the upgrade step, the expectations need to be adjusted.
                     let from = if *legacy { 0 } else { from };
 
-                    // There must be exactly to - from rows.
                     assert_eq!(
                         to - from,
                         conn.query_row(
@@ -186,8 +177,7 @@ mod test {
                         )
                         .unwrap()
                     );
-                    // Each row must have the correct relation between id and test_field. If this
-                    // is not the case, the upgraders were not executed in the correct order.
+
                     assert_eq!(
                         to - from,
                         conn.query_row(
@@ -217,7 +207,6 @@ mod test {
             assert_eq!(version, 3);
         }
 
-        // Was the version table created as expected?
         assert_eq!(
             Ok("version".to_owned()),
             conn.query_row(
@@ -228,14 +217,12 @@ mod test {
             )
         );
 
-        // There is exactly one row in the version table.
         assert_eq!(
             Ok(1),
             conn.query_row("SELECT COUNT(id) from persistent.version;", [], |row| row
                 .get(0))
         );
 
-        // The version must be set to 3
         assert_eq!(
             Ok(3),
             conn.query_row(
@@ -245,8 +232,6 @@ mod test {
             )
         );
 
-        // Will subsequent calls to create_or_get_version still return the same version even
-        // if the current version changes.
         {
             let tx = conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -256,14 +241,12 @@ mod test {
             assert_eq!(version, 3);
         }
 
-        // There is still exactly one row in the version table.
         assert_eq!(
             Ok(1),
             conn.query_row("SELECT COUNT(id) from persistent.version;", [], |row| row
                 .get(0))
         );
 
-        // Bump the version.
         {
             let tx = conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -272,7 +255,6 @@ mod test {
             tx.commit().unwrap();
         }
 
-        // Now the version should have changed.
         {
             let tx = conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -282,14 +264,12 @@ mod test {
             assert_eq!(version, 5);
         }
 
-        // There is still exactly one row in the version table.
         assert_eq!(
             Ok(1),
             conn.query_row("SELECT COUNT(id) from persistent.version;", [], |row| row
                 .get(0))
         );
 
-        // The version must be set to 5
         assert_eq!(
             Ok(5),
             conn.query_row(
@@ -305,8 +285,7 @@ mod test {
         let mut conn = Connection::open_in_memory().unwrap();
         conn.execute("ATTACH DATABASE 'file::memory:' as persistent;", [])
             .unwrap();
-        // A legacy (version 0) database is detected if the keyentry table exists but no
-        // version table.
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS persistent.keyentry (
              id INTEGER UNIQUE,
@@ -326,11 +305,10 @@ mod test {
                 .unwrap();
             let version = create_or_get_version(&tx, 3).unwrap();
             tx.commit().unwrap();
-            // In the legacy case, version 0 must be returned.
+
             assert_eq!(version, 0);
         }
 
-        // Was the version table created as expected?
         assert_eq!(
             Ok("version".to_owned()),
             conn.query_row(
@@ -341,14 +319,12 @@ mod test {
             )
         );
 
-        // There is exactly one row in the version table.
         assert_eq!(
             Ok(1),
             conn.query_row("SELECT COUNT(id) from persistent.version;", [], |row| row
                 .get(0))
         );
 
-        // The version must be set to 0
         assert_eq!(
             Ok(0),
             conn.query_row(
@@ -358,8 +334,6 @@ mod test {
             )
         );
 
-        // Will subsequent calls to create_or_get_version still return the same version even
-        // if the current version changes.
         {
             let tx = conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -369,14 +343,12 @@ mod test {
             assert_eq!(version, 0);
         }
 
-        // There is still exactly one row in the version table.
         assert_eq!(
             Ok(1),
             conn.query_row("SELECT COUNT(id) from persistent.version;", [], |row| row
                 .get(0))
         );
 
-        // Bump the version.
         {
             let tx = conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -385,7 +357,6 @@ mod test {
             tx.commit().unwrap();
         }
 
-        // Now the version should have changed.
         {
             let tx = conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -395,14 +366,12 @@ mod test {
             assert_eq!(version, 5);
         }
 
-        // There is still exactly one row in the version table.
         assert_eq!(
             Ok(1),
             conn.query_row("SELECT COUNT(id) from persistent.version;", [], |row| row
                 .get(0))
         );
 
-        // The version must be set to 5
         assert_eq!(
             Ok(5),
             conn.query_row(

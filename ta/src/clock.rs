@@ -12,15 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! TA functionality for secure clocks.
-
 use core::mem::size_of;
 use kmr_common::{km_err, vec_try_with_capacity, Error};
 use kmr_wire::secureclock::{TimeStampToken, TIME_STAMP_MAC_LABEL};
 use std::vec::Vec;
 
 impl crate::KeyMintTa {
-    /// Generates an authenticated timestamp.
     pub fn generate_timestamp(&self, challenge: i64) -> Result<TimeStampToken, Error> {
         if let Some(clock) = &self.imp.clock {
             let mut ret = TimeStampToken {
@@ -37,13 +34,9 @@ impl crate::KeyMintTa {
     }
 }
 
-/// Build the HMAC input for a [`TimeStampToken`]
 pub fn timestamp_token_mac_input(token: &TimeStampToken) -> Result<Vec<u8>, Error> {
     let mut result = vec_try_with_capacity!(
-        TIME_STAMP_MAC_LABEL.len() +
-        size_of::<i64>() + // challenge (BE)
-        size_of::<i64>() + // timestamp (BE)
-        size_of::<u32>() // 1u32 (BE)
+        TIME_STAMP_MAC_LABEL.len() + size_of::<i64>() + size_of::<i64>() + size_of::<u32>()
     )?;
     result.extend_from_slice(TIME_STAMP_MAC_LABEL);
     result.extend_from_slice(&token.challenge.to_be_bytes()[..]);

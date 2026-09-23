@@ -13,8 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Emulated implementation of device traits for `IRemotelyProvisionedComponent`.
-
 use core::cell::RefCell;
 use kmr_common::crypto::{ec, ec::CoseKeyPurpose, Ec, KeyMaterial};
 use kmr_common::{crypto, explicit, rpc_err, vec_try, Error};
@@ -26,19 +24,16 @@ use kmr_wire::coset::{iana, CoseSign1Builder, HeaderBuilder};
 use kmr_wire::keymint::{Digest, EcCurve};
 use kmr_wire::{cbor::value::Value, coset::AsCborValue, rpc, CborError};
 
-/// Trait to encapsulate deterministic derivation of secret data.
 pub trait DeriveBytes {
-    /// Derive `output_len` bytes of data from `context`, deterministically.
     fn derive_bytes(&self, context: &[u8], output_len: usize) -> Result<Vec<u8>, Error>;
 }
 
-/// Common emulated implementation of RPC artifact retrieval.
 pub struct Artifacts<T: DeriveBytes> {
     derive: T,
     sign_algo: CsrSigningAlgorithm,
-    // Invariant once populated: `self.dice_info.signing_algorithm` == `self.sign_algo`
+
     dice_info: RefCell<Option<DiceInfo>>,
-    // Invariant once populated: `self.bcc_signing_key` is a variant that matches `self.sign_algo`
+
     bcc_signing_key: RefCell<Option<ec::Key>>,
 }
 
@@ -73,8 +68,6 @@ impl<T: DeriveBytes + Send> RetrieveRpcArtifacts for Artifacts<T> {
         data: &[u8],
         _rpc_v2: Option<RpcV2Req>,
     ) -> Result<Vec<u8>, Error> {
-        // DICE artifacts should have been initialized via `get_dice_info()` by the time this
-        // method is called.
         let private_key = self
             .bcc_signing_key
             .borrow()
@@ -90,7 +83,6 @@ impl<T: DeriveBytes + Send> RetrieveRpcArtifacts for Artifacts<T> {
 }
 
 impl<T: DeriveBytes + Send> Artifacts<T> {
-    /// Constructor.
     pub fn new(derive: T, sign_algo: CsrSigningAlgorithm) -> Self {
         Self {
             derive,
@@ -100,7 +92,6 @@ impl<T: DeriveBytes + Send> Artifacts<T> {
         }
     }
 
-    /// Indicate the curve used in signing.
     fn signing_curve(&self) -> EcCurve {
         match self.sign_algo {
             CsrSigningAlgorithm::ES256 => EcCurve::P256,
@@ -109,7 +100,6 @@ impl<T: DeriveBytes + Send> Artifacts<T> {
         }
     }
 
-    /// Indicate the digest used in signing.
     fn signing_digest(&self) -> Digest {
         match self.sign_algo {
             CsrSigningAlgorithm::ES256 => Digest::Sha256,
@@ -118,7 +108,6 @@ impl<T: DeriveBytes + Send> Artifacts<T> {
         }
     }
 
-    /// Indicate the COSE algorithm value associated with signing.
     fn signing_cose_algo(&self) -> iana::Algorithm {
         match self.sign_algo {
             CsrSigningAlgorithm::ES256 => iana::Algorithm::ES256,
@@ -138,7 +127,7 @@ impl<T: DeriveBytes + Send> Artifacts<T> {
                 let secret = self.derive_bytes_from_hbk(&BoringHmac, b"Device Key Seed", 32)?;
                 ec::import_raw_ed25519_key(&secret)
             }
-            // TODO: generate the *same* key after reboot, by use of the TPM.
+
             CsrSigningAlgorithm::ES256 => {
                 ec.generate_nist_key(&mut BoringRng, ec::NistCurve::P256, &[])
             }
@@ -153,7 +142,7 @@ impl<T: DeriveBytes + Send> Artifacts<T> {
                     curve,
                     curve_type,
                     CoseKeyPurpose::Sign,
-                    None, /* no key ID */
+                    None,
                     rpc::TestMode(false),
                 )?,
                 key,
@@ -169,25 +158,19 @@ impl<T: DeriveBytes + Send> Artifacts<T> {
         let cose_key_cbor = pub_cose_key.to_cbor_value().map_err(CborError::from)?;
         let cose_key_cbor_data = kmr_ta::rkp::serialize_cbor(&cose_key_cbor)?;
 
-        // Construct `DiceChainEntryPayload`
         let dice_chain_entry_payload = Value::Map(vec_try![
-            // Issuer
             (
                 Value::Integer(1.into()),
                 Value::Text(String::from("Issuer"))
             ),
-            // Subject
             (
                 Value::Integer(2.into()),
                 Value::Text(String::from("Subject"))
             ),
-            // Subject public key
             (
                 Value::Integer((-4670552).into()),
                 Value::Bytes(cose_key_cbor_data)
             ),
-            // Key Usage field contains a CBOR byte string of the bits which correspond
-            // to `keyCertSign` as per RFC 5280 Section 4.2.1.3 (in little-endian byte order)
             (
                 Value::Integer((-4670553).into()),
                 Value::Bytes(vec_try![0x20]?)
@@ -195,7 +178,6 @@ impl<T: DeriveBytes + Send> Artifacts<T> {
         ]?);
         let dice_chain_entry_payload_data = kmr_ta::rkp::serialize_cbor(&dice_chain_entry_payload)?;
 
-        // Construct `DiceChainEntry`
         let protected = HeaderBuilder::new()
             .algorithm(self.signing_cose_algo())
             .build();
@@ -211,11 +193,9 @@ impl<T: DeriveBytes + Send> Artifacts<T> {
             .build();
         let dice_chain_entry_cbor = dice_chain_entry.to_cbor_value().map_err(CborError::from)?;
 
-        // Construct `DiceCertChain`
         let dice_cert_chain = Value::Array(vec_try![cose_key_cbor, dice_chain_entry_cbor]?);
         let dice_cert_chain_data = kmr_ta::rkp::serialize_cbor(&dice_cert_chain)?;
 
-        // Construct `UdsCerts` as an empty CBOR map
         let uds_certs_data = kmr_ta::rkp::serialize_cbor(&Value::Map(Vec::new()))?;
 
         let pub_dice_artifacts = PubDiceArtifacts {

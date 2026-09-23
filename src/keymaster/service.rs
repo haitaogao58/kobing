@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This crate implement the core Keystore 2.0 service API as defined by the Keystore 2.0
-//! AIDL spec.
-
 use std::collections::HashMap;
 use std::sync::RwLock;
 
@@ -55,7 +52,6 @@ use log::debug;
 use rsbinder::thread_state::CallingContext;
 use rsbinder::{Status, Strong};
 
-/// Implementation of the IKeystoreService.
 pub struct KeystoreService {
     security_levels: RwLock<SecurityLevels>,
     id_rotation_state: IdRotationState,
@@ -89,7 +85,6 @@ impl SecurityLevels {
 }
 
 impl KeystoreService {
-    /// Create a new instance of the Keystore 2.0 service.
     pub fn new_native_binder() -> Result<KeystoreService> {
         let result = Self {
             strongbox_enabled: crate::plat::keymint_profile::strongbox_keymint_present(),
@@ -639,8 +634,6 @@ fn calling_uid(ctx: Option<&CallerInfo>) -> AppUid {
 
 impl rsbinder::Interface for KeystoreService {}
 
-// Implementation of IKeystoreService. See AIDL spec at
-// system/security/keystore2/binder/android/security/keystore2/IKeystoreService.aidl
 #[allow(non_snake_case)]
 impl IKeystoreService for KeystoreService {
     fn getSecurityLevel(

@@ -12,16 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This crate provides some safe wrappers around the libselinux API. It is currently limited
-//! to the API surface that Keystore 2.0 requires to perform permission checks against
-//! the SEPolicy. Notably, it provides wrappers for:
-//!  * getcon
-//!  * selinux_check_access
-//!  * selabel_lookup for the keystore2_key backend.
-//!
-//! And it provides an owning wrapper around context strings `Context`.
-
-// TODO(b/290018030): Remove this and add proper safety comments.
 #![allow(clippy::undocumented_unsafe_blocks)]
 
 use anyhow::Context as AnyhowContext;
@@ -44,17 +34,9 @@ use selinux::SELINUX_CB_LOG;
 
 static SELINUX_LOG_INIT: sync::Once = sync::Once::new();
 
-/// `selinux_check_access` is only thread safe if avc_init was called with lock callbacks.
-/// However, avc_init is deprecated and not exported by androids version of libselinux.
-/// `selinux_set_callbacks` does not allow setting lock callbacks. So the only option
-/// that remains right now is to put a big lock around calls into libselinux.
-/// TODO b/188079221 It should suffice to protect `selinux_check_access` but until we are
-/// certain of that, we leave the extra locks in place
 static LIB_SELINUX_LOCK: sync::Mutex<()> = sync::Mutex::new(());
 
 fn redirect_selinux_logs_to_logcat() {
-    // `selinux_set_callback` assigns the static lifetime function pointer
-    // `selinux_log_callback` to a static lifetime variable.
     let cb = selinux::selinux_callback {
         func_log: Some(selinux::selinux_log_callback),
     };
@@ -63,26 +45,20 @@ fn redirect_selinux_logs_to_logcat() {
     }
 }
 
-// This function must be called before any entry point into lib selinux.
-// Or leave a comment reasoning why calling this macro is not necessary
-// for a given entry point.
 fn init_logger_once() {
     SELINUX_LOG_INIT.call_once(redirect_selinux_logs_to_logcat)
 }
 
-/// Selinux Error code.
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
 pub enum Error {
-    /// Indicates that an access check yielded no access.
     #[error("Permission Denied")]
     PermissionDenied,
-    /// Indicates an unexpected system error. Nested string provides some details.
+
     #[error("Selinux SystemError: {0}")]
     SystemError(String),
 }
 
 impl Error {
-    /// Constructs a `PermissionDenied` error.
     pub fn perm() -> Self {
         Error::PermissionDenied
     }
@@ -91,22 +67,15 @@ impl Error {
     }
 }
 
-/// Context represents an SELinux context string. It can take ownership of a raw
-/// s-string as allocated by `getcon` or `selabel_lookup`. In this case it uses
-/// `freecon` to free the resources when dropped. In its second variant it stores
-/// an `std::ffi::CString` that can be initialized from a Rust string slice.
 #[derive(Debug)]
 pub enum Context {
-    /// Wraps a raw context c-string as returned by libselinux.
     Raw(*mut ::std::os::raw::c_char),
-    /// Stores a context string as `std::ffi::CString`.
+
     CString(CString),
 }
 
 impl PartialEq for Context {
     fn eq(&self, other: &Self) -> bool {
-        // We dereference both and thereby delegate the comparison
-        // to `CStr`'s implementation of `PartialEq`.
         **self == **other
     }
 }
@@ -122,9 +91,6 @@ impl fmt::Display for Context {
 impl Drop for Context {
     fn drop(&mut self) {
         if let Self::Raw(p) = self {
-            // No need to initialize the logger here, because
-            // `freecon` cannot run unless `Backend::lookup` or `getcon`
-            // has run.
             unsafe { selinux::freecon(*p) };
         }
     }
@@ -142,7 +108,6 @@ impl Deref for Context {
 }
 
 impl Context {
-    /// Initializes the `Context::CString` variant from a Rust string slice.
     pub fn new(con: &str) -> Result<Self> {
         Ok(Self::CString(CString::new(con).with_context(|| {
             format!("Failed to create Context with \"{con}\"")
@@ -150,31 +115,21 @@ impl Context {
     }
 }
 
-/// The backend trait provides a uniform interface to all libselinux context backends.
-/// Currently, we only implement the KeystoreKeyBackend though.
 pub trait Backend {
-    /// Implementers use libselinux `selabel_lookup` to lookup the context for the given `key`.
     fn lookup(&self, key: &str) -> Result<Context>;
 }
 
-/// Keystore key backend takes onwnership of the SELinux context handle returned by
-/// `selinux_android_keystore2_key_context_handle` and uses `selabel_close` to free
-/// the handle when dropped.
-/// It implements `Backend` to provide keystore_key label lookup functionality.
 pub struct KeystoreKeyBackend {
     handle: *mut selinux::selabel_handle,
 }
 
-// SAFETY: KeystoreKeyBackend is Sync because selabel_lookup is thread safe.
 unsafe impl Sync for KeystoreKeyBackend {}
-// SAFETY: KeystoreKeyBackend is Send because selabel_lookup is thread safe.
+
 unsafe impl Send for KeystoreKeyBackend {}
 
 impl KeystoreKeyBackend {
     const BACKEND_TYPE: i32 = SELABEL_CTX_ANDROID_KEYSTORE2_KEY as i32;
 
-    /// Creates a new instance representing an SELinux context handle as returned by
-    /// `selinux_android_keystore2_key_context_handle`.
     pub fn new() -> Result<Self> {
         init_logger_once();
         let _lock = LIB_SELINUX_LOCK.lock().unwrap();
@@ -189,15 +144,10 @@ impl KeystoreKeyBackend {
 
 impl Drop for KeystoreKeyBackend {
     fn drop(&mut self) {
-        // No need to initialize the logger here because it cannot be called unless
-        // KeystoreKeyBackend::new has run.
         unsafe { selinux::selabel_close(self.handle) };
     }
 }
 
-// Because KeystoreKeyBackend is Sync and Send, member function must never call
-// non thread safe libselinux functions. As of this writing no non thread safe
-// functions exist that could be called on a label backend handle.
 impl Backend for KeystoreKeyBackend {
     fn lookup(&self, key: &str) -> Result<Context> {
         let mut con: *mut c_char = ptr::null_mut();
@@ -205,8 +155,6 @@ impl Backend for KeystoreKeyBackend {
             format!("selabel_lookup: Failed to convert key \"{key}\" to CString.")
         })?;
         match unsafe {
-            // No need to initialize the logger here because it cannot run unless
-            // KeystoreKeyBackend::new has run.
             let _lock = LIB_SELINUX_LOCK.lock().unwrap();
 
             selinux::selabel_lookup(self.handle, &mut con, c_key.as_ptr(), Self::BACKEND_TYPE)
@@ -226,13 +174,6 @@ impl Backend for KeystoreKeyBackend {
     }
 }
 
-/// Safe wrapper around libselinux `getcon`. It initializes the `Context::Raw` variant of the
-/// returned `Context`.
-///
-/// ## Return
-///  * Ok(Context::Raw()) if successful.
-///  * Err(Error::sys()) if getcon succeeded but returned a NULL pointer.
-///  * Err(io::Error::last_os_error()) if getcon failed.
 pub fn getcon() -> Result<Context> {
     init_logger_once();
     let _lock = LIB_SELINUX_LOCK.lock().unwrap();
@@ -250,13 +191,6 @@ pub fn getcon() -> Result<Context> {
     }
 }
 
-/// Safe wrapper around selinux_check_access.
-///
-/// ## Return
-///  * Ok(()) iff the requested access was granted.
-///  * Err(anyhow!(Error::perm()))) if the permission was denied.
-///  * Err(anyhow!(ioError::last_os_error())) if any other error occurred while performing
-///    the access check.
 pub fn check_access(source: &CStr, target: &CStr, tclass: &str, perm: &str) -> Result<()> {
     init_logger_once();
 
@@ -297,11 +231,7 @@ pub fn check_access(source: &CStr, target: &CStr, tclass: &str, perm: &str) -> R
     }
 }
 
-/// Safe wrapper around setcon.
 pub fn setcon(target: &CStr) -> std::io::Result<()> {
-    // SAFETY: `setcon` takes a const char* and only performs read accesses on it
-    // using strdup and strcmp. `setcon` does not retain a pointer to `target`
-    // and `target` outlives the call to `setcon`.
     if unsafe { selinux::setcon(target.as_ptr()) } != 0 {
         Err(std::io::Error::last_os_error())
     } else {
@@ -309,45 +239,14 @@ pub fn setcon(target: &CStr) -> std::io::Result<()> {
     }
 }
 
-/// Represents an SEPolicy permission belonging to a specific class.
 pub trait ClassPermission {
-    /// The permission string of the given instance as specified in the class vector.
     fn name(&self) -> &'static str;
-    /// The class of the permission.
+
     fn class_name(&self) -> &'static str;
 }
 
-/// This macro implements an enum with values mapped to SELinux permission names.
-/// The example below implements `enum MyPermission with public visibility:
-///  * From<i32> and Into<i32> are implemented. Where the implementation of From maps
-///    any variant not specified to the default `None` with value `0`.
-///  * `MyPermission` implements ClassPermission.
-///  * An implicit default values `MyPermission::None` is created with a numeric representation
-///    of `0` and a string representation of `"none"`.
-///  * Specifying a value is optional. If the value is omitted it is set to the value of the
-///    previous variant left shifted by 1.
-///
-/// ## Example
-/// ```
-/// implement_class!(
-///     /// MyPermission documentation.
-///     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-///     #[selinux(class_name = my_class)]
-///     pub enum MyPermission {
-///         #[selinux(name = foo)]
-///         Foo = 1,
-///         #[selinux(name = bar)]
-///         Bar = 2,
-///         #[selinux(name = snafu)]
-///         Snafu, // Implicit value: MyPermission::Bar << 1 -> 4
-///     }
-///     assert_eq!(MyPermission::Foo.name(), &"foo");
-///     assert_eq!(MyPermission::Foo.class_name(), &"my_class");
-///     assert_eq!(MyPermission::Snafu as i32, 4);
-/// );
-/// ```
 macro_rules! implement_class {
-    // First rule: Public interface.
+
     (
         $(#[$($enum_meta:tt)+])*
         $enum_vis:vis enum $enum_name:ident $body:tt
@@ -360,9 +259,9 @@ macro_rules! implement_class {
         }
     };
 
-    // The next two rules extract the #[selinux(class_name = <name>)] meta field from
-    // the types meta list.
-    // This first rule finds the field and terminates the recursion through the meta fields.
+
+
+
     (
         @extract_class
         [$(#[$mout:meta])*]
@@ -393,7 +292,7 @@ macro_rules! implement_class {
         }
     };
 
-    // The second rule iterates through the type global meta fields.
+
     (
         @extract_class
         [$(#[$mout:meta])*]
@@ -414,12 +313,12 @@ macro_rules! implement_class {
         }
     };
 
-    // The next four rules implement two nested recursions. The outer iterates through
-    // the enum variants and the inner iterates through the meta fields of each variant.
-    // The first two rules find the #[selinux(name = <name>)] stanza, terminate the inner
-    // recursion and descend a level in the outer recursion.
-    // The first rule matches variants with explicit initializer $vval. And updates the next
-    // value to ($vval << 1).
+
+
+
+
+
+
     (
         @extract_perm_name
         $class_name:ident
@@ -455,8 +354,8 @@ macro_rules! implement_class {
         }
     };
 
-    // The second rule differs form the previous in that there is no explicit initializer.
-    // Instead $next_val is used as initializer and the next value is set to (&next_val << 1).
+
+
     (
         @extract_perm_name
         $class_name:ident
@@ -492,7 +391,7 @@ macro_rules! implement_class {
         }
     };
 
-    // The third rule descends a step in the inner recursion.
+
     (
         @extract_perm_name
         $class_name:ident
@@ -531,8 +430,8 @@ macro_rules! implement_class {
         }
     };
 
-    // The fourth rule terminates the outer recursion and transitions to the
-    // implementation phase @spill.
+
+
     (
         @extract_perm_name
         $class_name:ident
@@ -566,7 +465,7 @@ macro_rules! implement_class {
     ) => {
         $(#[$enum_meta])*
         $enum_vis enum $enum_name {
-            /// The default variant of the enum.
+
             None = 0,
             $(
                 $(#[$emeta])*
@@ -577,8 +476,8 @@ macro_rules! implement_class {
         impl From<i32> for $enum_name {
             #[allow(non_upper_case_globals)]
             fn from (p: i32) -> Self {
-                // Creating constants forces the compiler to evaluate the value expressions
-                // so that they can be used in the match statement below.
+
+
                 $(const $vname: i32 = $vval;)*
                 match p {
                     0 => Self::None,
@@ -610,7 +509,6 @@ macro_rules! implement_class {
 
 pub(crate) use implement_class;
 
-/// Calls `check_access` on the given class permission.
 pub fn check_permission<T: ClassPermission>(source: &CStr, target: &CStr, perm: T) -> Result<()> {
     check_access(source, target, perm.class_name(), perm.name())
 }
@@ -620,12 +518,8 @@ mod tests {
     use super::*;
     use anyhow::Result;
 
-    /// The su_key namespace as defined in su.te and keystore_key_contexts of the
-    /// SePolicy (system/sepolicy). Root frameworks can run in their own domains but still use the
-    /// privileged root namespace for these tests.
     static SU_KEY_NAMESPACE: &str = "0";
-    /// The shell_key namespace as defined in shell.te and keystore_key_contexts of the
-    /// SePolicy (system/sepolicy).
+
     static SHELL_KEY_NAMESPACE: &str = "1";
 
     fn check_context() -> Result<(Context, &'static str, bool)> {
@@ -673,16 +567,11 @@ mod tests {
         use super::*;
         use anyhow::Result;
 
-        /// check_key_perm(perm, privileged, priv_domain)
-        /// `perm` is a permission of the keystore2_key class and `privileged` is a boolean
-        /// indicating whether the permission is considered privileged.
-        /// Privileged permissions are expected to be denied to `shell` users but granted
-        /// to the given priv_domain.
         macro_rules! check_key_perm {
-            // "use" is a keyword and cannot be used as an identifier, but we must keep
-            // the permission string intact. So we map the identifier name on use_ while using
-            // the permission string "use". In all other cases we can simply use the stringified
-            // identifier as permission string.
+
+
+
+
             (use, $privileged:expr) => {
                 check_key_perm!(use_, $privileged, "use");
             };

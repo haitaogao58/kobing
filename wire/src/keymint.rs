@@ -12,20 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Local types that are equivalent to those generated for KeyMint HAL interfaces
-//!
-//! - Enums are encoded as exhaustive Rust enums backed by `i32`, using Rust naming
-//!   conventions (CamelCase values).
-//! - Structs have all fields `pub`, using Rust naming conventions (snake_case fields).
-//! - Both enums and structs get a `[derive(AsCborValue)]`
-//!
-//! Special cases:
-//! - The `BeginResult` type of the HAL interface is omitted here, as it includes a
-//!   Binder reference.
-//! - `Tag` is private to this module, because....
-//! - `KeyParam` is a Rust `enum` that is used in place of the `KeyParameter` struct, meaning...
-//! - `KeyParameterValue` is not included here.
-
 use crate::{
     cbor, cbor_type_error, try_from_n, vec_try, AsCborValue, CborError, KeySizeInBits, RsaExponent,
 };
@@ -35,35 +21,23 @@ use std::format;
 use std::string::{String, ToString};
 use std::vec::Vec;
 
-/// Default certificate serial number of 1.
 pub const DEFAULT_CERT_SERIAL: &[u8] = &[0x01];
 
-/// ASN.1 DER encoding of the default certificate subject of 'CN=Android Keystore Key'.
 pub const DEFAULT_CERT_SUBJECT: &[u8] = &[
-    0x30, 0x1f, // SEQUENCE len 31
-    0x31, 0x1d, // SET len 29
-    0x30, 0x1b, // SEQUENCE len 27
-    0x06, 0x03, // OBJECT IDENTIFIER len 3
-    0x55, 0x04, 0x03, // 2.5.4.3 (commonName)
-    0x0c, 0x14, // UTF8String len 20
-    0x41, 0x6e, 0x64, 0x72, 0x6f, 0x69, 0x64, 0x20, 0x4b, 0x65, 0x79, 0x73, 0x74, 0x6f, 0x72, 0x65,
-    0x20, 0x4b, 0x65, 0x79, // "Android Keystore Key"
+    0x30, 0x1f, 0x31, 0x1d, 0x30, 0x1b, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0c, 0x14, 0x41, 0x6e, 0x64,
+    0x72, 0x6f, 0x69, 0x64, 0x20, 0x4b, 0x65, 0x79, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x20, 0x4b, 0x65,
+    0x79,
 ];
 
-/// Constants to indicate whether or not to include/expect more messages when splitting and then
-/// assembling the large responses sent from the TA to the HAL.
 pub const NEXT_MESSAGE_SIGNAL_TRUE: u8 = 0b00000001u8;
 pub const NEXT_MESSAGE_SIGNAL_FALSE: u8 = 0b00000000u8;
 
-/// We use Unix epoch as the start date of an undefined certificate validity period.
 pub const UNDEFINED_NOT_BEFORE: DateTime = DateTime { ms_since_epoch: 0 };
-/// Per RFC 5280 4.1.2.5, an undefined expiration (not-after) field should be set to
-/// 9999-12-31T23:59:59Z.
+
 pub const UNDEFINED_NOT_AFTER: DateTime = DateTime {
     ms_since_epoch: 253402300799000,
 };
 
-/// Possible verified boot state values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, N, AsCborValue)]
 pub enum VerifiedBootState {
     Verified = 0,
@@ -79,20 +53,15 @@ impl TryFrom<i32> for VerifiedBootState {
     }
 }
 
-/// Information provided once at start-of-day, normally by the bootloader.
-///
-/// Field order is fixed, to match the CBOR type definition of `RootOfTrust` in `IKeyMintDevice`.
 #[derive(Clone, Debug, AsCborValue, PartialEq, Eq)]
 pub struct BootInfo {
     pub verified_boot_key: Vec<u8>,
     pub device_boot_locked: bool,
     pub verified_boot_state: VerifiedBootState,
     pub verified_boot_hash: Vec<u8>,
-    pub boot_patchlevel: u32, // YYYYMMDD format
+    pub boot_patchlevel: u32,
 }
 
-// Implement the `coset` CBOR serialization traits in terms of the local `AsCborValue` trait,
-// in order to get access to tagged versions of serialize/deserialize.
 impl coset::AsCborValue for BootInfo {
     fn from_cbor_value(value: cbor::value::Value) -> coset::Result<Self> {
         <Self as AsCborValue>::from_cbor_value(value).map_err(|e| e.into())
@@ -106,7 +75,6 @@ impl coset::TaggedCborSerializable for BootInfo {
     const TAG: u64 = 40001;
 }
 
-/// Representation of a date/time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DateTime {
     pub ms_since_epoch: i64,
@@ -184,11 +152,10 @@ pub enum EcCurve {
     P256 = 1,
     P384 = 2,
     P521 = 3,
-    Curve25519 = 4, // Only for >= v2 of the HAL
+    Curve25519 = 4,
 }
 try_from_n!(EcCurve);
 
-// Only for >= v5 of the HAL
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, AsCborValue, N)]
 #[repr(i32)]
 pub enum MlDsaVariant {
@@ -289,7 +256,7 @@ pub enum ErrorCode {
     Unimplemented = -100,
     VersionMismatch = -101,
     UnknownError = -1000,
-    // Implementer's namespace for error codes starts at -10000.
+
     EncodingError = -20000,
     BoringSslError = -30000,
 }
@@ -357,7 +324,6 @@ pub enum KeyOrigin {
 }
 try_from_n!(KeyOrigin);
 
-/// Rust exhaustive enum for all key parameters.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyParam {
     Purpose(KeyPurpose),
@@ -369,7 +335,7 @@ pub enum KeyParam {
     CallerNonce,
     MinMacLength(u32),
     EcCurve(EcCurve),
-    MlDsaVariant(MlDsaVariant), // Only for >= v5 of the HAL
+    MlDsaVariant(MlDsaVariant),
     RsaPublicExponent(RsaExponent),
     IncludeUniqueId,
     RsaOaepMgfDigest(Digest),
@@ -404,7 +370,7 @@ pub enum KeyParam {
     AttestationIdProduct(Vec<u8>),
     AttestationIdSerial(Vec<u8>),
     AttestationIdImei(Vec<u8>),
-    AttestationIdSecondImei(Vec<u8>), // Only for >= v3 of the HAL
+    AttestationIdSecondImei(Vec<u8>),
     AttestationIdMeid(Vec<u8>),
     AttestationIdManufacturer(Vec<u8>),
     AttestationIdModel(Vec<u8>),
@@ -420,7 +386,7 @@ pub enum KeyParam {
     CertificateNotBefore(DateTime),
     CertificateNotAfter(DateTime),
     MaxBootLevel(u32),
-    ModuleHash(Vec<u8>), // Only for >= v4 of the HAL
+    ModuleHash(Vec<u8>),
 }
 
 impl KeyParam {
@@ -431,7 +397,7 @@ impl KeyParam {
             KeyParam::Padding(_) => Tag::Padding,
             KeyParam::Digest(_) => Tag::Digest,
             KeyParam::EcCurve(_) => Tag::EcCurve,
-            KeyParam::MlDsaVariant(_) => Tag::MlDsaVariant, // Only for >= v5 of the HAL
+            KeyParam::MlDsaVariant(_) => Tag::MlDsaVariant,
             KeyParam::Origin(_) => Tag::Origin,
             KeyParam::Purpose(_) => Tag::Purpose,
             KeyParam::KeySize(_) => Tag::KeySize,
@@ -470,7 +436,7 @@ impl KeyParam {
             KeyParam::AttestationIdProduct(_) => Tag::AttestationIdProduct,
             KeyParam::AttestationIdSerial(_) => Tag::AttestationIdSerial,
             KeyParam::AttestationIdImei(_) => Tag::AttestationIdImei,
-            KeyParam::AttestationIdSecondImei(_) => Tag::AttestationIdSecondImei, // Only for >= v3 of the HAL
+            KeyParam::AttestationIdSecondImei(_) => Tag::AttestationIdSecondImei,
             KeyParam::AttestationIdMeid(_) => Tag::AttestationIdMeid,
             KeyParam::AttestationIdManufacturer(_) => Tag::AttestationIdManufacturer,
             KeyParam::AttestationIdModel(_) => Tag::AttestationIdModel,
@@ -486,12 +452,11 @@ impl KeyParam {
             KeyParam::CertificateNotBefore(_) => Tag::CertificateNotBefore,
             KeyParam::CertificateNotAfter(_) => Tag::CertificateNotAfter,
             KeyParam::MaxBootLevel(_) => Tag::MaxBootLevel,
-            KeyParam::ModuleHash(_) => Tag::ModuleHash, // Only for >= v4 of the HAL
+            KeyParam::ModuleHash(_) => Tag::ModuleHash,
         }
     }
 }
 
-/// Check that a `bool` value is true (false values are represented by the absence of a tag).
 fn check_bool(value: cbor::value::Value) -> Result<(), crate::CborError> {
     match value {
         cbor::value::Value::Bool(true) => Ok(()),
@@ -500,8 +465,6 @@ fn check_bool(value: cbor::value::Value) -> Result<(), crate::CborError> {
     }
 }
 
-/// Manual implementation of [`crate::AsCborValue`] for the [`KeyParam`] enum that
-/// matches the serialization of the HAL `Tag` / `KeyParameterValue` types.
 impl crate::AsCborValue for KeyParam {
     fn from_cbor_value(value: cbor::value::Value) -> Result<Self, crate::CborError> {
         let mut a = match value {
@@ -512,7 +475,6 @@ impl crate::AsCborValue for KeyParam {
             return Err(crate::CborError::UnexpectedItem("arr", "arr len 2"));
         }
 
-        // Need to know the tag value to completely parse the value.
         let raw = a.remove(1);
         let tag = <Tag>::from_cbor_value(a.remove(0))?;
 
@@ -1104,7 +1066,6 @@ impl crate::AsCborValue for KeyParam {
     }
 }
 
-/// Determine the tag type for a tag, based on the top 4 bits of the tag number.
 pub fn tag_type(tag: Tag) -> TagType {
     match ((tag as u32) & 0xf0000000u32) as i32 {
         x if x == TagType::Enum as i32 => TagType::Enum,
@@ -1121,7 +1082,6 @@ pub fn tag_type(tag: Tag) -> TagType {
     }
 }
 
-/// Determine the raw tag value with tag type information stripped out.
 pub fn raw_tag_value(tag: Tag) -> u32 {
     (tag as u32) & 0x0fffffffu32
 }
@@ -1174,7 +1134,7 @@ pub enum Tag {
     CallerNonce = 1879048199,
     MinMacLength = 805306376,
     EcCurve = 268435466,
-    MlDsaVariant = 268435467, // Only in >= v5 of the HAL
+    MlDsaVariant = 268435467,
     RsaPublicExponent = 1342177480,
     IncludeUniqueId = 1879048394,
     RsaOaepMgfDigest = 536871115,
@@ -1220,7 +1180,7 @@ pub enum Tag {
     DeviceUniqueAttestation = 1879048912,
     IdentityCredentialKey = 1879048913,
     StorageKey = 1879048914,
-    AttestationIdSecondImei = -1879047469, // Only in >= v3 of the HAL
+    AttestationIdSecondImei = -1879047469,
     AssociatedData = -1879047192,
     Nonce = -1879047191,
     MacLength = 805307371,
@@ -1231,7 +1191,7 @@ pub enum Tag {
     CertificateNotBefore = 1610613744,
     CertificateNotAfter = 1610613745,
     MaxBootLevel = 805307378,
-    ModuleHash = -1879047468, // Only in >= v4 of the HAL
+    ModuleHash = -1879047468,
 }
 try_from_n!(Tag);
 

@@ -14,7 +14,6 @@
 
 use super::*;
 
-// Test basic functionality of KeyParameter.
 #[test]
 fn test_key_parameter() {
     let key_parameter = KeyParameter::new(

@@ -31,8 +31,6 @@ pub fn db_root_path() -> &'static Path {
     Path::new(KOBING_DB_ROOT)
 }
 
-/// A single on-demand worker thread that handles deferred tasks with two different
-/// priorities.
 pub static ASYNC_TASK: LazyLock<Arc<AsyncTask>> = LazyLock::new(Default::default);
 
 static GC: LazyLock<Arc<Gc>> = LazyLock::new(|| {
@@ -54,14 +52,6 @@ static GC: LazyLock<Arc<Gc>> = LazyLock::new(|| {
     }))
 });
 
-/// Open a connection to the Keystore 2.0 database. This is called during the initialization of
-/// the thread local DB field. It should never be called directly. The first time this is called
-/// we also call KeystoreDB::cleanup_leftovers to restore the key lifecycle invariant. See the
-/// documentation of cleanup_leftovers for more details. The function also constructs a blob
-/// garbage collector. The initializing closure constructs another database connection without
-/// a gc. Although one GC is created for each thread local database connection, this closure
-/// is run only once, as long as the ASYNC_TASK instance is the same. So only one additional
-/// database connection is created for the garbage collector worker.
 pub fn create_thread_local_db() -> KeymasterDb {
     let result = KeymasterDb::new(db_root_path(), Some(GC.clone()));
     let mut db = match result {
@@ -92,10 +82,10 @@ pub fn create_thread_local_db() -> KeymasterDb {
 }
 
 thread_local! {
-    /// Database connections are not thread safe, but connecting to the
-    /// same database multiple times is safe as long as each connection is
-    /// used by only one thread. So we store one database connection per
-    /// thread in this thread local key.
+
+
+
+
     pub static DB: RefCell<KeymasterDb> = RefCell::new(create_thread_local_db());
 }
 
@@ -138,8 +128,6 @@ fn watch_for_boot_completed() -> Result<()> {
     }
 }
 
-/// Boot-scoped APEX module information used by both KeyMint attestation injection and
-/// `getSupplementaryAttestationInfo(Tag::MODULE_HASH)`.
 pub static MODULE_INFO_BUNDLE: OnceLock<ModuleInfoBundle> = OnceLock::new();
 
 pub fn install_module_info_bundle(bundle: ModuleInfoBundle) -> Result<()> {
@@ -152,11 +140,8 @@ pub fn module_info_bundle() -> Option<&'static ModuleInfoBundle> {
     MODULE_INFO_BUNDLE.get()
 }
 
-/// Timestamp service.
 static TIME_STAMP_DEVICE: Mutex<Option<Strong<dyn ISecureClock>>> = Mutex::new(None);
 
-/// Get the timestamp service that verifies auth token timeliness towards security levels with
-/// different clocks.
 pub fn get_timestamp_service() -> Result<Strong<dyn ISecureClock>> {
     let mut ts_device = TIME_STAMP_DEVICE.lock().unwrap();
     if let Some(dev) = &*ts_device {
@@ -175,6 +160,4 @@ fn connect_secureclock() -> Result<Strong<dyn ISecureClock>> {
     Ok(dev)
 }
 
-/// Per RFC 5280 4.1.2.5, an undefined expiration (not-after) field should be set to GeneralizedTime
-/// 999912312359559, which is 253402300799000 ms from Jan 1, 1970.
 pub const UNDEFINED_NOT_AFTER: i64 = 253402300799000i64;

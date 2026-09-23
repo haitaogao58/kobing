@@ -12,15 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! In-memory secure deletion secret manager.
-//!
-//! Only suitable for development/testing (as secrets are lost on restart).
-
 use super::{SecureDeletionData, SecureDeletionSecretManager, SecureDeletionSlot, SlotPurpose};
 use crate::{crypto, km_err, Error};
 
-/// Secure deletion secret manager that keeps state in memory. Provided as an example only; do not
-/// use in a real system (keys will not survive reboot if you do).
 pub struct InMemorySlotManager<const N: usize> {
     factory_secret: Option<[u8; 32]>,
     slots: [Option<SecureDeletionData>; N],
@@ -30,7 +24,7 @@ impl<const N: usize> Default for InMemorySlotManager<N> {
     fn default() -> Self {
         Self {
             factory_secret: None,
-            // Work around Rust limitation that `[None; N]` doesn't work.
+
             slots: [(); N].map(|_| Option::<SecureDeletionData>::default()),
         }
     }
@@ -42,7 +36,6 @@ impl<const N: usize> SecureDeletionSecretManager for InMemorySlotManager<N> {
         rng: &mut dyn crypto::Rng,
     ) -> Result<SecureDeletionData, Error> {
         if self.factory_secret.is_none() {
-            // No factory reset secret created yet, so do so now.
             let mut secret = [0; 32];
             rng.fill_bytes(&mut secret[..]);
             self.factory_secret = Some(secret);
@@ -96,9 +89,7 @@ impl<const N: usize> SecureDeletionSecretManager for InMemorySlotManager<N> {
 
     fn delete_all(&mut self) {
         self.factory_secret = None;
-        // Clear every slot. `fill` is semantically identical to
-        // `for idx in 0..N { self.slots[idx] = None; }` because the array's
-        // length is exactly `N`, and it avoids the needless range loop.
+
         self.slots.fill(None);
     }
 }

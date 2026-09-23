@@ -15,10 +15,6 @@ mod request;
 pub use reply::*;
 pub use request::*;
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder transaction parcel for the duration of this call.
 pub unsafe fn peek_request_interface(
     data: *mut u8,
     data_size: usize,
@@ -29,10 +25,6 @@ pub unsafe fn peek_request_interface(
     read_request_interface(&mut parcel)
 }
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder transaction parcel for the duration of this call.
 pub unsafe fn parse_no_arg_request_interface(
     data: *mut u8,
     data_size: usize,
@@ -45,10 +37,6 @@ pub unsafe fn parse_no_arg_request_interface(
     Ok(interface)
 }
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder transaction parcel for the duration of this call.
 pub unsafe fn parse_metadata_request_interface_allow_trailing(
     data: *mut u8,
     data_size: usize,
@@ -59,10 +47,6 @@ pub unsafe fn parse_metadata_request_interface_allow_trailing(
     read_request_interface_for_check(&mut parcel)
 }
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder transaction parcel for the duration of this call.
 pub unsafe fn peek_request_interface_for_check(
     data: *mut u8,
     data_size: usize,
@@ -73,10 +57,6 @@ pub unsafe fn peek_request_interface_for_check(
     read_request_interface_for_check(&mut parcel)
 }
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder transaction parcel for the duration of this call.
 pub unsafe fn validate_dump_request(
     data: *mut u8,
     data_size: usize,
@@ -107,8 +87,6 @@ pub unsafe fn validate_dump_request(
         bail!("dump request first object is not a file descriptor");
     }
 
-    // AOSP BBinder::onTransact lets readInt32() collapse a missing argc to 0
-    // and best-effort reads dump args while data remains.
     Ok(())
 }
 

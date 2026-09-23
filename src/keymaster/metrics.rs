@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Implements the IKeystoreMetrics AIDL interface for the KOBING RPC surface.
-
 use crate::android::security::metrics::{
     AtomID::AtomID,
     IKeystoreMetrics::{BnKeystoreMetrics, IKeystoreMetrics},

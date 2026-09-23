@@ -59,10 +59,6 @@ pub struct ReplyBinderCarrier {
     pub is_object: bool,
 }
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder reply parcel for the duration of this call.
 pub unsafe fn parse_success_reply<T: Deserialize>(
     data: *mut u8,
     data_size: usize,
@@ -74,10 +70,6 @@ pub unsafe fn parse_success_reply<T: Deserialize>(
     parcel.read().context("failed to decode reply payload")
 }
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder reply parcel for the duration of this call.
 pub unsafe fn parse_reply_status(
     data: *mut u8,
     data_size: usize,
@@ -103,10 +95,6 @@ pub fn parse_owned_success_reply<T: Deserialize>(reply: &mut OwnedReply) -> Resu
     }
 }
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder reply parcel for the duration of this call.
 pub unsafe fn extract_direct_binder_reply_carrier(
     data: *mut u8,
     data_size: usize,
@@ -118,10 +106,6 @@ pub unsafe fn extract_direct_binder_reply_carrier(
     read_reply_binder_carrier(&mut parcel, data)
 }
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder reply parcel for the duration of this call.
 pub unsafe fn parse_key_entry_reply(
     data: *mut u8,
     data_size: usize,
@@ -143,10 +127,6 @@ pub unsafe fn parse_key_entry_reply(
     })
 }
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder reply parcel for the duration of this call.
 pub unsafe fn extract_create_operation_reply_carrier(
     data: *mut u8,
     data_size: usize,

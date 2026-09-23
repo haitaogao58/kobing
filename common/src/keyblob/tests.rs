@@ -50,13 +50,11 @@ fn test_sdd_slot_holder() {
     assert!(sdd_mgr.get_secret(slot1).unwrap() == sdd1);
     assert!(sdd0 != sdd1);
 
-    // If the slot holder is dropped rather than consumed, it should free the slot.
     let (slot_holder2, _sdd2a) =
         SlotHolder::new(&mut sdd_mgr, &mut rng, SlotPurpose::KeyGeneration).unwrap();
     drop(slot_holder2);
     assert!(sdd_mgr.get_secret(SecureDeletionSlot(2)).is_err());
 
-    // Slot 2 is available again.
     let (slot_holder2, sdd2b) =
         SlotHolder::new(&mut sdd_mgr, &mut rng, SlotPurpose::KeyGeneration).unwrap();
     let slot2 = slot_holder2.consume();

@@ -12,23 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The storage_tests module first tests the 'new_from_sql' method for KeyParameters of different
-//! data types and then tests 'to_sql' method for KeyParameters of those
-//! different data types. The five different data types for KeyParameter values are:
-//! i) enums of u32
-//! ii) u32
-//! iii) u64
-//! iv) Vec<u8>
-//! v) bool
-
 use super::*;
 use crate::keymaster::error::tests;
 use anyhow::Result;
 use rusqlite::types::ToSql;
 use rusqlite::{params, Connection};
 
-/// Test initializing a KeyParameter (with key parameter value corresponding to an enum of i32)
-/// from a database table row.
 #[test]
 fn test_new_from_sql_enum_i32() -> Result<()> {
     let db = init_db()?;
@@ -49,8 +38,6 @@ fn test_new_from_sql_enum_i32() -> Result<()> {
     Ok(())
 }
 
-/// Test initializing a KeyParameter (with key parameter value which is of i32)
-/// from a database table row.
 #[test]
 fn test_new_from_sql_i32() -> Result<()> {
     let db = init_db()?;
@@ -64,12 +51,10 @@ fn test_new_from_sql_i32() -> Result<()> {
     Ok(())
 }
 
-/// Test initializing a KeyParameter (with key parameter value which is of i64)
-/// from a database table row.
 #[test]
 fn test_new_from_sql_i64() -> Result<()> {
     let db = init_db()?;
-    // max value for i64, just to test corner cases
+
     insert_into_keyparameter(
         &db,
         1,
@@ -86,8 +71,6 @@ fn test_new_from_sql_i64() -> Result<()> {
     Ok(())
 }
 
-/// Test initializing a KeyParameter (with key parameter value which is of bool)
-/// from a database table row.
 #[test]
 fn test_new_from_sql_bool() -> Result<()> {
     let db = init_db()?;
@@ -107,8 +90,6 @@ fn test_new_from_sql_bool() -> Result<()> {
     Ok(())
 }
 
-/// Test initializing a KeyParameter (with key parameter value which is of Vec<u8>)
-/// from a database table row.
 #[test]
 fn test_new_from_sql_vec_u8() -> Result<()> {
     let db = init_db()?;
@@ -130,8 +111,6 @@ fn test_new_from_sql_vec_u8() -> Result<()> {
     Ok(())
 }
 
-/// Test storing a KeyParameter (with key parameter value which corresponds to an enum of i32)
-/// in the database
 #[test]
 fn test_to_sql_enum_i32() -> Result<()> {
     let db = init_db()?;
@@ -147,7 +126,6 @@ fn test_to_sql_enum_i32() -> Result<()> {
     Ok(())
 }
 
-/// Test storing a KeyParameter (with key parameter value which is of i32) in the database
 #[test]
 fn test_to_sql_i32() -> Result<()> {
     let db = init_db()?;
@@ -160,11 +138,10 @@ fn test_to_sql_i32() -> Result<()> {
     Ok(())
 }
 
-/// Test storing a KeyParameter (with key parameter value which is of i64) in the database
 #[test]
 fn test_to_sql_i64() -> Result<()> {
     let db = init_db()?;
-    // max value for i64, just to test corner cases
+
     let kp = KeyParameter::new(
         KeyParameterValue::RSAPublicExponent(i64::MAX),
         SecurityLevel::STRONGBOX,
@@ -177,7 +154,6 @@ fn test_to_sql_i64() -> Result<()> {
     Ok(())
 }
 
-/// Test storing a KeyParameter (with key parameter value which is of Vec<u8>) in the database
 #[test]
 fn test_to_sql_vec_u8() -> Result<()> {
     let db = init_db()?;
@@ -193,7 +169,6 @@ fn test_to_sql_vec_u8() -> Result<()> {
     Ok(())
 }
 
-/// Test storing a KeyParameter (with key parameter value which is of i32) in the database
 #[test]
 fn test_to_sql_bool() -> Result<()> {
     let db = init_db()?;
@@ -207,7 +182,6 @@ fn test_to_sql_bool() -> Result<()> {
 }
 
 #[test]
-/// Test Tag::Invalid
 fn test_invalid_tag() -> Result<()> {
     let db = init_db()?;
     insert_into_keyparameter(&db, 1, 0, &123, 1)?;
@@ -236,7 +210,6 @@ fn test_invalid_conversion_from_sql() -> Result<()> {
     Ok(())
 }
 
-/// Helper method to init database table for key parameter
 fn init_db() -> Result<Connection> {
     let db = Connection::open_in_memory().context("Failed to initialize sqlite connection.")?;
     db.execute("ATTACH DATABASE ? as 'persistent';", params![""])
@@ -253,7 +226,6 @@ fn init_db() -> Result<Connection> {
     Ok(db)
 }
 
-/// Helper method to insert an entry into key parameter table, with individual parameters
 fn insert_into_keyparameter<T: ToSql>(
     db: &Connection,
     key_id: i64,
@@ -269,7 +241,6 @@ fn insert_into_keyparameter<T: ToSql>(
     Ok(())
 }
 
-/// Helper method to store a key parameter instance.
 fn store_keyparameter(db: &Connection, key_id: i64, kp: &KeyParameter) -> Result<()> {
     db.execute(
         "INSERT into persistent.keyparameter (keyentryid, tag, data, security_level)
@@ -284,7 +255,6 @@ fn store_keyparameter(db: &Connection, key_id: i64, kp: &KeyParameter) -> Result
     Ok(())
 }
 
-/// Helper method to query a row from keyparameter table
 fn query_from_keyparameter(db: &Connection) -> Result<KeyParameter> {
     let mut stmt = db.prepare("SELECT tag, data, security_level FROM persistent.keyparameter")?;
     let mut rows = stmt.query([])?;

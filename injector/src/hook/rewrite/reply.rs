@@ -35,13 +35,6 @@ fn register_security_level_carrier(
 }
 
 pub(super) fn build_ko_bing_status_reply(status: &Status) -> anyhow::Result<OutboundReply> {
-    // KOBING is the authoritative keystore backend, so its ServiceSpecific codes
-    // are keystore ResponseCode / KeyMint ErrorCode values that must reach the
-    // client verbatim (matching keystore2's own into_binder for Error::Rc/Km).
-    // Every other status — success on an error path, a transport failure, or
-    // any other binder exception — is mapped to a service-specific SYSTEM_ERROR,
-    // matching AOSP error_to_serialized_error (Error::Binder/BinderTransaction
-    // -> SYSTEM_ERROR); keystore2 never forwards a raw transport status_t.
     if status.exception_code() == ExceptionCode::ServiceSpecific {
         return parcel::build_status_reply(status);
     }
@@ -60,15 +53,6 @@ fn build_ko_bing_error_reply(error: &anyhow::Error) -> anyhow::Result<OutboundRe
         return build_ko_bing_status_reply(status);
     }
 
-    // A bare StatusCode (no wrapped Status) is an injector-internal failure, not
-    // an KOBING business error (those arrive as Status, handled above). AOSP
-    // keystore2 maps every bare StatusCode through map_binder_status_code ->
-    // Error::BinderTransaction -> SYSTEM_ERROR unconditionally, ignoring the code
-    // itself (error.rs map_binder_status_code/error_to_serialized_error); it
-    // never returns a raw transport status_t nor a code-specific parcel.
-    // KOBING-unavailable codes are already filtered out earlier by
-    // ko_bing_unavailable_error. Errors without any status collapse to SYSTEM_ERROR
-    // the same way.
     Ok(synthetic_fallback_reply())
 }
 
@@ -79,11 +63,6 @@ pub(super) fn precomputed_ko_bing_error_reply(error: &anyhow::Error) -> Status {
         }
     }
 
-    // Mirror build_ko_bing_error_reply: a bare StatusCode (no wrapped Status) is an
-    // injector-internal failure. AOSP keystore2 maps any bare StatusCode through
-    // map_binder_status_code -> Error::BinderTransaction -> SYSTEM_ERROR
-    // (error.rs map_binder_status_code/error_to_serialized_error), regardless of
-    // the code, so it is normalized to a service-specific SYSTEM_ERROR here.
     Status::new_service_specific_error(ResponseCode::SYSTEM_ERROR.0, None)
 }
 

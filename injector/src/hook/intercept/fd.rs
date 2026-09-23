@@ -11,7 +11,7 @@ pub(super) struct BinderFdLifecycleState {
 pub(super) struct BinderFdLifecycle {
     pub(super) connection: BinderStateKey,
     pub(super) state: Mutex<BinderFdLifecycleState>,
-    // Closing a Binder dup flushes and wakes every looper, so keep one pin per connection.
+
     pub(super) pinned_fd: OnceLock<c_int>,
 }
 
@@ -401,7 +401,7 @@ impl BinderIoctlGuard {
             if raw_pin < 0 {
                 return Err(unsafe { *libc::__errno() });
             }
-            // Mock-ioctl tests use synthetic fd numbers; real-fd tests still exercise the pin.
+
             if raw_pin < 0 {
                 token.fd
             } else {

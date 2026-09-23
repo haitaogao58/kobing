@@ -12,11 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Can be removed when instrumentations are added to keystore.
-#![allow(dead_code)]
-
-//! This module implements a watchdog thread.
-
 use std::{
     cmp::min,
     collections::HashMap,
@@ -29,12 +24,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Represents a Watchdog record. It can be created with `Watchdog::watch` or
-/// `Watchdog::watch_with`. It disarms the record when dropped.
 pub struct WatchPoint {
     id: &'static str,
     wd: Arc<Watchdog>,
-    not_send: PhantomData<*mut ()>, // WatchPoint must not be Send.
+    not_send: PhantomData<*mut ()>,
 }
 
 impl Drop for WatchPoint {
@@ -62,11 +55,6 @@ struct Record {
 }
 
 impl Record {
-    // Return a string representation of the start time of the record.
-    //
-    // Times are hard. This may not be accurate (e.g. if the system clock has been modified since
-    // the watchdog started), but it's _really_ useful to get a starting wall time for overrunning
-    // watchdogs.
     fn started_utc(&self) -> String {
         let started_utc = chrono::Utc::now() - self.started.elapsed();
         format!("{}", started_utc.format("%m-%d %H:%M:%S%.3f UTC"))
@@ -76,7 +64,7 @@ impl Record {
 struct WatchdogState {
     state: State,
     thread: Option<thread::JoinHandle<()>>,
-    /// How long to wait before dropping the watchdog thread when idle.
+
     idle_timeout: Duration,
     records: HashMap<Index, Record>,
     last_report: Option<Instant>,
@@ -84,10 +72,6 @@ struct WatchdogState {
 }
 
 impl WatchdogState {
-    /// If we have overdue records, we want to log them but slowly backoff
-    /// so that we do not clog the logs. We start with logs every
-    /// `MIN_REPORT_TIMEOUT` sec then increment the timeout by 5 up
-    /// to a maximum of `MAX_REPORT_TIMEOUT`.
     const MIN_REPORT_TIMEOUT: Duration = Duration::from_secs(1);
     const MAX_REPORT_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -107,10 +91,8 @@ impl WatchdogState {
         for r in self.records.values() {
             let timeout = r.deadline.saturating_duration_since(now);
             if timeout == Duration::new(0, 0) {
-                // This timeout has passed.
                 has_overdue = true;
             } else {
-                // This timeout is still to come; see if it's the closest one to now.
                 next_timeout = match next_timeout {
                     Some(nt) if timeout < nt => Some(timeout),
                     Some(nt) => Some(nt),
@@ -123,14 +105,12 @@ impl WatchdogState {
 
     fn log_report(&mut self, has_overdue: bool) {
         if !has_overdue {
-            // Nothing to report.
             self.last_report = None;
             return;
         }
-        // Something to report...
+
         if let Some(reported_at) = self.last_report {
             if reported_at.elapsed() < self.noisy_timeout {
-                // .. but it's too soon since the last report.
                 self.last_report = None;
                 return;
             }
@@ -154,16 +134,8 @@ impl WatchdogState {
             overdue_records.len()
         );
 
-        // Watch points can be nested, i.e., a single thread may have multiple armed
-        // watch points. And the most recent on each thread (thread recent) is closest to the point
-        // where something is blocked. Furthermore, keystore2 has various critical section
-        // and common backend resources KeyMint that can only be entered serialized. So if one
-        // thread hangs, the others will soon follow suite. Thus the oldest "thread recent" watch
-        // point is most likely pointing toward the culprit.
-        // Thus, sort by start time first.
         overdue_records.sort_unstable_by_key(|(_, r)| r.started);
-        // Then we groups all of the watch points per thread preserving the order within
-        // groups.
+
         let groups = overdue_records.iter().fold(
             HashMap::<thread::ThreadId, Vec<(&Index, &Record)>>::new(),
             |mut acc, (i, r)| {
@@ -171,11 +143,9 @@ impl WatchdogState {
                 acc
             },
         );
-        // Put the groups back into a vector.
+
         let mut groups: Vec<Vec<(&Index, &Record)>> = groups.into_values().collect();
-        // Sort the groups by start time of the most recent (.last()) of each group.
-        // It is panic safe to use unwrap() here because we never add empty vectors to
-        // the map.
+
         groups.sort_by(|v1, v2| {
             v1.last()
                 .unwrap()
@@ -253,17 +223,11 @@ impl WatchdogState {
     }
 }
 
-/// Watchdog spawns a thread that logs records of all overdue watch points when a deadline
-/// is missed and at least every second as long as overdue watch points exist.
-/// The thread terminates when idle for a given period of time.
 pub struct Watchdog {
     state: Arc<(Condvar, Mutex<WatchdogState>)>,
 }
 
 impl Watchdog {
-    /// Construct a [`Watchdog`]. When `idle_timeout` has elapsed since the watchdog thread became
-    /// idle, i.e., there are no more active or overdue watch points, the watchdog thread
-    /// terminates.
     pub fn new(idle_timeout: Duration) -> Arc<Self> {
         Arc::new(Self {
             state: Arc::new((
@@ -299,9 +263,6 @@ impl Watchdog {
         })
     }
 
-    /// Create a new watch point. If the WatchPoint is not dropped before the timeout
-    /// expires, a report is logged at least every second, which includes the id string
-    /// and any provided context.
     pub fn watch_with(
         wd: &Arc<Self>,
         id: &'static str,
@@ -311,7 +272,6 @@ impl Watchdog {
         Self::watch_with_optional(wd.clone(), Some(Box::new(context)), id, timeout)
     }
 
-    /// Like `watch_with`, but without context.
     pub fn watch(wd: &Arc<Self>, id: &'static str, timeout: Duration) -> Option<WatchPoint> {
         Self::watch_with_optional(wd.clone(), None, id, timeout)
     }
@@ -349,8 +309,6 @@ impl Watchdog {
 
         let mut state = state.lock().unwrap();
         state.disarm(index);
-        // There is no need to notify condvar. There is no action required for the
-        // watchdog thread before the next deadline.
     }
 
     fn spawn_thread(&self, state: &mut MutexGuard<WatchdogState>) {
@@ -376,9 +334,6 @@ impl Watchdog {
                     (false, None) => (state.idle_timeout, true),
                 };
 
-                // Wait until the closest timeout pops, but use a condition variable so that if a
-                // new watchpoint is started in the meanwhile it will interrupt the wait so we can
-                // recalculate.
                 let (s, timeout) = condvar.wait_timeout(state, next_timeout).unwrap();
                 state = s;
 

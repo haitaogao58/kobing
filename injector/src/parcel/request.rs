@@ -271,10 +271,6 @@ impl ParsedOperationRequest {
     }
 }
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder transaction parcel for the duration of this call.
 pub unsafe fn parse_authorization_request(
     data: *mut u8,
     data_size: usize,
@@ -370,10 +366,6 @@ unsafe fn parse_authorization_request_with_resolver(
     })
 }
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder transaction parcel for the duration of this call.
 pub unsafe fn parse_maintenance_request(
     data: *mut u8,
     data_size: usize,
@@ -456,10 +448,6 @@ unsafe fn parse_maintenance_request_with_resolver(
     })
 }
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder transaction parcel for the duration of this call.
 pub unsafe fn parse_service_request(
     data: *mut u8,
     data_size: usize,
@@ -525,10 +513,6 @@ pub unsafe fn parse_service_request(
     })
 }
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder transaction parcel for the duration of this call.
 pub unsafe fn parse_security_level_request(
     data: *mut u8,
     data_size: usize,
@@ -587,10 +571,6 @@ pub unsafe fn parse_security_level_request(
     })
 }
 
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder transaction parcel for the duration of this call.
 pub unsafe fn parse_operation_request(
     data: *mut u8,
     data_size: usize,

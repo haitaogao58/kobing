@@ -158,9 +158,7 @@ fn resolve_vb_key(
                     value,
                     source: TrustValueSource::Computed,
                 },
-                // Auto mode must never silently substitute a fabricated value:
-                // a random fallback would poison the attestation/RKP trust root.
-                // Fail loudly instead, so the misconfiguration is surfaced.
+
                 Err(error) => bail!(
                     "vbmeta public key digest unavailable: neither {VBMETA_KEY_PROP} \
                      nor computed digest could be resolved: {error:#}"
@@ -188,9 +186,7 @@ fn resolve_vb_hash(spec: &TrustValueSpec) -> Result<ResolvedField> {
                     value,
                     source: TrustValueSource::Original,
                 },
-                // Auto mode must never silently substitute a fabricated value:
-                // a random fallback would poison the attestation/RKP trust root.
-                // Fail loudly instead, so the misconfiguration is surfaced.
+
                 Err(error) => bail!(
                     "original verified boot hash unavailable: neither {VBMETA_HASH_PROP} \
                      nor probed original hash could be resolved: {error:#}"

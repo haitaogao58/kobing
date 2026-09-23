@@ -12,12 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This crate provides access control primitives for Keystore 2.0.
-//! It provides high level functions for checking permissions in the keystore2 and keystore2_key
-//! SELinux classes based on the keystore2_selinux backend.
-//! It also provides KeystorePerm and KeyPerm as convenience wrappers for the SELinux permission
-//! defined by keystore2 and keystore2_key respectively.
-
 use crate::android::os::IPermissionController::IPermissionController;
 use crate::android::system::keystore2::{
     Domain::Domain, KeyDescriptor::KeyDescriptor, KeyPermission::KeyPermission,
@@ -36,7 +30,6 @@ use std::convert::From;
 use std::ffi::{CStr, CString};
 use std::sync::{LazyLock, OnceLock};
 
-// Replace getcon with a mock in the test situation
 #[cfg(not(test))]
 use crate::selinux::getcon;
 #[cfg(test)]
@@ -44,8 +37,6 @@ fn getcon() -> anyhow::Result<selinux::Context> {
     selinux::Context::new("u:object_r:keystore:s0")
 }
 
-// Panicking here is allowed because keystore cannot function without this backend
-// and it would happen early and indicate a gross misconfiguration of the device.
 static KEYSTORE2_KEY_LABEL_BACKEND: LazyLock<selinux::KeystoreKeyBackend> =
     LazyLock::new(|| selinux::KeystoreKeyBackend::new().unwrap());
 static RUNTIME_SERVICE_CONTEXT: OnceLock<String> = OnceLock::new();
@@ -103,131 +94,96 @@ fn trusted_forwarding_sid(sid: &CStr) -> bool {
 }
 
 implement_class!(
-    /// KeyPerm provides a convenient abstraction from the SELinux class `keystore2_key`.
-    /// At the same time it maps `KeyPermissions` from the Keystore 2.0 AIDL Grant interface to
-    /// the SELinux permissions.
     #[repr(i32)]
     #[selinux(class_name = keystore2_key)]
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum KeyPerm {
-        /// Checked when convert_storage_key_to_ephemeral is called.
         #[selinux(name = convert_storage_key_to_ephemeral)]
         ConvertStorageKeyToEphemeral = KeyPermission::CONVERT_STORAGE_KEY_TO_EPHEMERAL.0,
-        /// Checked when the caller tries do delete a key.
+
         #[selinux(name = delete)]
         Delete = KeyPermission::DELETE.0,
-        /// Checked when the caller tries to use a unique id.
+
         #[selinux(name = gen_unique_id)]
         GenUniqueId = KeyPermission::GEN_UNIQUE_ID.0,
-        /// Checked when the caller tries to load a key.
+
         #[selinux(name = get_info)]
         GetInfo = KeyPermission::GET_INFO.0,
-        /// Checked when the caller attempts to grant a key to another uid.
-        /// Also used for gating key migration attempts.
+
         #[selinux(name = grant)]
         Grant = KeyPermission::GRANT.0,
-        /// Checked when the caller attempts to use Domain::BLOB.
+
         #[selinux(name = manage_blob)]
         ManageBlob = KeyPermission::MANAGE_BLOB.0,
-        /// Checked when the caller tries to create a key which implies rebinding
-        /// an alias to the new key.
+
         #[selinux(name = rebind)]
         Rebind = KeyPermission::REBIND.0,
-        /// Checked when the caller attempts to create a forced operation.
+
         #[selinux(name = req_forced_op)]
         ReqForcedOp = KeyPermission::REQ_FORCED_OP.0,
-        /// Checked when the caller attempts to update public key artifacts.
+
         #[selinux(name = update)]
         Update = KeyPermission::UPDATE.0,
-        /// Checked when the caller attempts to use a private or public key.
+
         #[selinux(name = use)]
         Use = KeyPermission::USE.0,
-        /// Does nothing, and is not checked. For use of device identifiers,
-        /// the caller must hold the READ_PRIVILEGED_PHONE_STATE Android
-        /// permission.
+
         #[selinux(name = use_dev_id)]
         UseDevId = KeyPermission::USE_DEV_ID.0,
     }
 );
 
 implement_class!(
-    /// KeystorePerm provides a convenient abstraction from the SELinux class `keystore2`.
-    /// Using the implement_permission macro we get the same features as `KeyPerm`.
     #[selinux(class_name = keystore2)]
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum KeystorePerm {
-        /// Checked when a new auth token is installed.
         #[selinux(name = add_auth)]
         AddAuth,
-        /// Checked when an app is uninstalled or wiped.
+
         #[selinux(name = clear_ns)]
         ClearNs,
-        /// Checked when Keystore 2.0 is asked to list a namespace that the caller
-        /// does not have the get_info permission for.
+
         #[selinux(name = list)]
         List,
-        /// Checked when Keystore 2.0 gets locked.
+
         #[selinux(name = lock)]
         Lock,
-        /// Checked when Keystore 2.0 shall be reset.
+
         #[selinux(name = reset)]
         Reset,
-        /// Checked when Keystore 2.0 shall be unlocked.
+
         #[selinux(name = unlock)]
         Unlock,
-        /// Checked when user is added or removed.
+
         #[selinux(name = change_user)]
         ChangeUser,
-        /// Checked when password of the user is changed.
+
         #[selinux(name = change_password)]
         ChangePassword,
-        /// Checked when a UID is cleared.
+
         #[selinux(name = clear_uid)]
         ClearUID,
-        /// Checked when Credstore calls IKeystoreAuthorization to obtain auth tokens.
+
         #[selinux(name = get_auth_token)]
         GetAuthToken,
-        /// Checked when earlyBootEnded() is called.
+
         #[selinux(name = early_boot_ended)]
         EarlyBootEnded,
-        /// Checked when IKeystoreMetrics::pullMetrics is called.
+
         #[selinux(name = pull_metrics)]
         PullMetrics,
-        /// Checked when IKeystoreMaintenance::deleteAllKeys is called.
+
         #[selinux(name = delete_all_keys)]
         DeleteAllKeys,
-        /// Checked on calls to IRemotelyProvisionedKeyPool::getAttestationKey
+
         #[selinux(name = get_attestation_key)]
         GetAttestationKey,
-        /// Checked on IKeystoreAuthorization::getLastAuthTime() is called.
+
         #[selinux(name = get_last_auth_time)]
         GetLastAuthTime,
     }
 );
 
-/// Represents a set of `KeyPerm` permissions.
-/// `IntoIterator` is implemented for this struct allowing the iteration through all the
-/// permissions in the set.
-/// It also implements a function `includes(self, other)` that checks if the permissions
-/// in `other` are included in `self`.
-///
-/// KeyPermSet can be created with the macro `key_perm_set![]`.
-///
-/// ## Example
-/// ```
-/// let perms1 = key_perm_set![KeyPerm::Use, KeyPerm::ManageBlob, KeyPerm::Grant];
-/// let perms2 = key_perm_set![KeyPerm::Use, KeyPerm::ManageBlob];
-///
-/// assert!(perms1.includes(perms2))
-/// assert!(!perms2.includes(perms1))
-///
-/// let i = perms1.into_iter();
-/// // iteration in ascending order of the permission's numeric representation.
-/// assert_eq(Some(KeyPerm::ManageBlob), i.next());
-/// assert_eq(Some(KeyPerm::Grant), i.next());
-/// assert_eq(Some(KeyPerm::Use), i.next());
-/// assert_eq(None, i.next());
-/// ```
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct KeyPermSet(pub i32);
 
@@ -269,7 +225,6 @@ impl From<KeyPerm> for KeyPermSet {
     }
 }
 
-/// allow conversion from the AIDL wire type i32 to a permission set.
 impl From<i32> for KeyPermSet {
     fn from(p: i32) -> Self {
         Self(p)
@@ -283,19 +238,12 @@ impl From<KeyPermSet> for i32 {
 }
 
 impl KeyPermSet {
-    /// Returns true iff this permission set has all of the permissions that are in `other`.
     pub fn includes<T: Into<KeyPermSet>>(&self, other: T) -> bool {
         let o: KeyPermSet = other.into();
         (self.0 & o.0) == o.0
     }
 }
 
-/// This macro can be used to create a `KeyPermSet` from a list of `KeyPerm` values.
-///
-/// ## Example
-/// ```
-/// let v = key_perm_set![Perm::delete(), Perm::manage_blob()];
-/// ```
 #[macro_export]
 macro_rules! key_perm_set {
     () => { KeyPermSet(0) };
@@ -349,27 +297,12 @@ fn android_permission_check_path(android_major_version: Option<i32>) -> AndroidP
     }
 }
 
-/// Uses `selinux::check_permission` to check if the given caller context `caller_cxt` may access
-/// the given permision `perm` of the `keystore2` security class.
 fn check_keystore_permission_raw(caller_ctx: &CStr, perm: KeystorePerm) -> anyhow::Result<()> {
     let target_context = keystore_target_context()
         .context("check_keystore_permission: failed to resolve target context")?;
     selinux::check_permission(caller_ctx, &target_context, perm)
 }
 
-/// Uses `selinux::check_permission` to check if the given caller context `caller_cxt` has
-/// all the permissions indicated in `access_vec` for the target domain indicated by the key
-/// descriptor `key` in the security class `keystore2_key`.
-///
-/// Also checks if the caller has the grant permission for the given target domain.
-///
-/// Attempts to grant the grant permission are always denied.
-///
-/// The only viable target domains are
-///  * `Domain::APP` in which case u:r:keystore:s0 is used as target context and
-///  * `Domain::SELINUX` in which case the `key.nspace` parameter is looked up in
-///    SELinux keystore key backend, and the result is used
-///    as target context.
 fn check_grant_permission_raw(
     caller_uid: AppUid,
     caller_ctx: &CStr,
@@ -407,25 +340,6 @@ fn check_grant_permission_raw(
     Ok(())
 }
 
-/// Uses `selinux::check_permission` to check if the given caller context `caller_cxt`
-/// has the permissions indicated by `perm` for the target domain indicated by the key
-/// descriptor `key` in the security class `keystore2_key`.
-///
-/// The behavior differs slightly depending on the selected target domain:
-///  * `Domain::APP` u:r:keystore:s0 is used as target context.
-///  * `Domain::SELINUX` `key.nspace` parameter is looked up in the SELinux keystore key
-///    backend, and the result is used as target context.
-///  * `Domain::BLOB` Same as SELinux but the "manage_blob" permission is always checked additionally
-///    to the one supplied in `perm`.
-///  * `Domain::GRANT` Does not use selinux::check_permission. Instead the `access_vector`
-///    parameter is queried for permission, which must be supplied in this case.
-///
-/// ## Return values.
-///  * Ok(()) If the requested permissions were granted.
-///  * Err(selinux::Error::perm()) If the requested permissions were denied.
-///  * Err(KsError::sys()) This error is produced if `Domain::GRANT` is selected but no `access_vec`
-///    was supplied. It is also produced if `Domain::KEY_ID` was selected, and
-///    on various unexpected backend failures.
 fn check_key_permission_raw(
     caller_uid: AppUid,
     caller_ctx: &CStr,
@@ -433,13 +347,6 @@ fn check_key_permission_raw(
     key: &KeyDescriptor,
     access_vector: &Option<KeyPermSet>,
 ) -> anyhow::Result<()> {
-    // If an access vector was supplied, the key is either accessed by GRANT or by KEY_ID.
-    // In the former case, key.domain was set to GRANT and we check the failure cases
-    // further below. If the access is requested by KEY_ID, key.domain would have been
-    // resolved to APP or SELINUX depending on where the key actually resides.
-    // Either way we can return here immediately if the access vector covers the requested
-    // permission. If it does not, we can still check if the caller has access by means of
-    // ownership.
     if let Some(access_vector) = access_vector {
         if access_vector.includes(perm) {
             return Ok(());
@@ -447,7 +354,6 @@ fn check_key_permission_raw(
     }
 
     let target_context = match key.domain {
-        // apps get the default keystore context
         Domain::APP => {
             if caller_uid.0 != key.nspace {
                 return Err(selinux::Error::perm())
@@ -457,32 +363,25 @@ fn check_key_permission_raw(
         }
         Domain::SELINUX => lookup_keystore2_key_context(key.nspace)
             .context(ks_err!("Domain::SELINUX: Failed to lookup namespace."))?,
-        Domain::GRANT => {
-            match access_vector {
-                Some(_) => {
-                    return Err(selinux::Error::perm())
-                        .context(format!("\"{}\" not granted", perm.name()));
-                }
-                None => {
-                    // If DOMAIN_GRANT was selected an access vector must be supplied.
-                    return Err(KsError::sys()).context(ks_err!(
-                        "Cannot check permission for Domain::GRANT without access vector.",
-                    ));
-                }
+        Domain::GRANT => match access_vector {
+            Some(_) => {
+                return Err(selinux::Error::perm())
+                    .context(format!("\"{}\" not granted", perm.name()));
             }
-        }
+            None => {
+                return Err(KsError::sys()).context(ks_err!(
+                    "Cannot check permission for Domain::GRANT without access vector.",
+                ));
+            }
+        },
         Domain::KEY_ID => {
-            // We should never be called with `Domain::KEY_ID. The database
-            // lookup should have converted this into one of `Domain::APP`
-            // or `Domain::SELINUX`.
             return Err(KsError::sys())
                 .context(ks_err!("Cannot check permission for Domain::KEY_ID.",));
         }
         Domain::BLOB => {
             let tctx = lookup_keystore2_key_context(key.nspace)
                 .context(ks_err!("Domain::BLOB: Failed to lookup namespace."))?;
-            // If DOMAIN_KEY_BLOB was specified, we check for the "manage_blob"
-            // permission in addition to the requested permission.
+
             selinux::check_permission(caller_ctx, &tctx, KeyPerm::ManageBlob)?;
 
             tctx

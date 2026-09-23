@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Runtime helpers shared by KoBing binaries.
-
 pub mod file_watch;
 pub mod fs;
 pub mod logging;

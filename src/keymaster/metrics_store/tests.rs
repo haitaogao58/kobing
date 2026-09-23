@@ -27,28 +27,28 @@ use crate::android::security::metrics::{
 #[test]
 fn test_round_latency_logic() {
     let test_cases = [
-        (0, 0), // <= 10ms: nearest 5ms
+        (0, 0),
         (2, 0),
         (3, 5),
         (5, 5),
         (7, 5),
         (8, 10),
         (10, 10),
-        (11, 10), // 10-100ms: nearest 10ms
+        (11, 10),
         (14, 10),
         (15, 20),
         (94, 90),
         (95, 100),
         (100, 100),
-        (101, 100), // > 100ms: 50ms step
+        (101, 100),
         (124, 100),
         (125, 150),
         (974, 950),
         (975, 1000),
-        (1000, 1000), // 1s-10s: 500ms steps
+        (1000, 1000),
         (1249, 1000),
         (1250, 1500),
-        (12345, 10000), // 10s+: 5000ms steps
+        (12345, 10000),
     ];
 
     for (input, expected) in test_cases {
@@ -85,7 +85,6 @@ fn test_enum_bitmask_show() {
 
     assert_eq!(show_blockmode(modes), "-T-E");
 
-    // Add some bits not covered by the enum of valid bit positions.
     modes |= 0xa0;
     assert_eq!(show_blockmode(modes), "-T-E(full:0x000000aa)");
     modes |= 0x300;
@@ -111,17 +110,10 @@ fn test_user_auth_type() {
             MetricsAuthType::PASSWORD_OR_FINGERPRINT,
         ),
         (vec![AuthType::ANY], MetricsAuthType::ANY),
-        // 7 is the "next" undefined HardwareAuthenticatorType enum tag number, so
-        // force this test to fail and be updated if someone adds a new enum value.
         (vec![AuthType(7)], MetricsAuthType::AUTH_TYPE_UNSPECIFIED),
         (vec![AuthType(123)], MetricsAuthType::AUTH_TYPE_UNSPECIFIED),
         (
-            // In practice, Tag::USER_AUTH_TYPE isn't a repeatable tag. It's allowed
-            // to appear once for auth-bound keys and contains the binary OR of the
-            // applicable auth types. However, this test case repeats the tag more
-            // than once in order to unit test the logic that constructs the atom.
             vec![AuthType::ANY, AuthType(123), AuthType::PASSWORD],
-            // The last auth type wins.
             MetricsAuthType::PASSWORD,
         ),
     ];
@@ -156,23 +148,12 @@ fn test_log_auth_timeout_seconds() {
     let test_cases = [
         (vec![], -1),
         (vec![-1], 0),
-        // The metrics code computes the value of this field for a timeout `t` with
-        // `f32::log10(t as f32) as i32`. The result of f32::log10(0 as f32) is `-inf`.
-        // Casting this to i32 means it gets "rounded" to i32::MIN, which is -2147483648.
         (vec![0], -2147483648),
         (vec![1], 0),
         (vec![9], 0),
         (vec![10], 1),
         (vec![999], 2),
-        (
-            // In practice, Tag::AUTH_TIMEOUT isn't a repeatable tag. It's allowed to
-            // appear once for auth-bound keys. However, this test case repeats the
-            // tag more than once in order to unit test the logic that constructs the
-            // atom.
-            vec![1, 0, 10],
-            // The last timeout wins.
-            1,
-        ),
+        (vec![1, 0, 10], 1),
     ];
     for (timeouts, expected) in test_cases {
         let key_params: Vec<_> = timeouts
@@ -267,8 +248,6 @@ fn test_algorithm() {
             &[create_key_param_with_algorithm(Algorithm::HMAC)],
             MetricsAlgorithm::HMAC,
         ),
-        // Lots of test cases for ML-DSA: the algorithm is determined from the
-        // MlDsaVariant parameter, not the Algorithm parameter.
         (
             &[create_key_param_with_algorithm(Algorithm::ML_DSA)],
             MetricsAlgorithm::ALGORITHM_UNSPECIFIED,
@@ -367,7 +346,6 @@ fn test_log_key_creation_per_uid() {
         }
     };
 
-    // Log once
     log_key_creation_event_stats(uid, sec_level, &params, KeyOrigin::GENERATED, &Ok(()));
     let atoms = METRICS_STORE
         .get_atoms(AtomID::KEY_CREATION_PER_UID)
@@ -379,7 +357,6 @@ fn test_log_key_creation_per_uid() {
     let initial_count = atom.count;
     assert!(initial_count >= 1);
 
-    // Log again and check count increases
     log_key_creation_event_stats(uid, sec_level, &params, KeyOrigin::GENERATED, &Ok(()));
     let atoms = METRICS_STORE
         .get_atoms(AtomID::KEY_CREATION_PER_UID)
@@ -446,7 +423,6 @@ fn test_log_key_operation_per_uid() {
         }
     };
 
-    // Log once
     log_key_operation_event_stats(
         uid,
         sec_level,
@@ -466,7 +442,6 @@ fn test_log_key_operation_per_uid() {
     let initial_count = atom.count;
     assert!(initial_count >= 1);
 
-    // Log again and check count increases
     log_key_operation_event_stats(
         uid,
         sec_level,
@@ -495,7 +470,6 @@ fn test_log_operation_latency_aggregation() {
     let params = vec![create_key_param_with_algorithm(Algorithm::RSA)];
     let sec_level = SecurityLevel::TRUSTED_ENVIRONMENT;
 
-    // Log same operation twice.
     log_operation_latency(
         MetricsOperationType::GENERATE_KEY,
         sec_level,
@@ -511,7 +485,6 @@ fn test_log_operation_latency_aggregation() {
         Duration::from_millis(150),
     );
 
-    // Log different bucket.
     log_operation_latency(
         MetricsOperationType::GENERATE_KEY,
         sec_level,
@@ -548,7 +521,6 @@ fn test_log_operation_latency_outcomes() {
     let params = vec![create_key_param_with_algorithm(Algorithm::RSA)];
     let sec_level = SecurityLevel::TRUSTED_ENVIRONMENT;
 
-    // Test Success
     log_operation_latency(
         MetricsOperationType::ENTIRE_OPERATION,
         sec_level,
@@ -557,7 +529,6 @@ fn test_log_operation_latency_outcomes() {
         Duration::from_millis(5),
     );
 
-    // Test Failure
     log_operation_latency(
         MetricsOperationType::ENTIRE_OPERATION,
         sec_level,
@@ -653,18 +624,18 @@ fn test_round_streaming_logic() {
         (11, 11),
         (19, 19),
         (20, 20),
-        (21, 20), // > 20: step is 10
+        (21, 20),
         (25, 30),
         (94, 90),
         (100, 100),
-        (101, 100), // > 100: step is 100
+        (101, 100),
         (104, 100),
         (105, 100),
         (124, 100),
         (150, 200),
         (949, 900),
         (1000, 1000),
-        (1024, 1000), // > 1000: step is 1000
+        (1024, 1000),
         (10239, 10000),
         (100000, 100000),
     ];
@@ -687,7 +658,6 @@ fn test_log_key_operation_streaming_stats() {
     let algorithm = MetricsAlgorithm::RSA;
     let is_success = true;
 
-    // Log once with call count below threshold (5 < 20)
     log_key_operation_streaming_stats(algorithm, is_success, 5, 1024);
     let atoms = METRICS_STORE
         .get_atoms(AtomID::KEY_OPERATION_STREAMING_STATS)
@@ -706,7 +676,6 @@ fn test_log_key_operation_streaming_stats() {
     let initial_count = atom.count;
     assert!(initial_count >= 1);
 
-    // Log again and check count increases
     log_key_operation_streaming_stats(algorithm, is_success, 5, 1024);
     let atoms = METRICS_STORE
         .get_atoms(AtomID::KEY_OPERATION_STREAMING_STATS)

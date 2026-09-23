@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This module implements a per-boot, shared, in-memory storage of auth tokens
-//! for the main Keystore 2.0 database module.
-
 use crate::android::hardware::security::keymint::{
     HardwareAuthToken::HardwareAuthToken, HardwareAuthenticatorType::HardwareAuthenticatorType,
 };
@@ -42,8 +39,6 @@ impl AuthTokenId {
     }
 }
 
-//Implements Eq/Hash to only operate on the AuthTokenId portion
-//of the AuthTokenEntry. This allows a HashSet to DTRT.
 #[derive(Clone)]
 struct AuthTokenEntryWrap(AuthTokenEntry);
 
@@ -62,34 +57,25 @@ impl PartialEq<AuthTokenEntryWrap> for AuthTokenEntryWrap {
 
 impl Eq for AuthTokenEntryWrap {}
 
-/// Per-boot state structure. Currently only used to track auth tokens.
 #[derive(Default)]
 pub struct PerbootDB {
-    // We can use a .unwrap() discipline on this lock, because only panicking
-    // while holding a .write() lock will poison it. The only write usage is
-    // an insert call which inserts a pre-constructed pair.
     auth_tokens: RwLock<HashSet<AuthTokenEntryWrap>>,
 }
 
-/// The global instance of the perboot DB. Located here rather than in globals
-/// in order to restrict access to the database module.
 pub static PERBOOT_DB: LazyLock<Arc<PerbootDB>> = LazyLock::new(|| Arc::new(PerbootDB::new()));
 
 impl PerbootDB {
-    /// Construct a new perboot database. Currently just uses default values.
     pub fn new() -> Self {
         Default::default()
     }
-    /// Add a new auth token + timestamp to the database, replacing any which
-    /// match all of user_id, auth_id, and auth_type.
+
     pub fn insert_auth_token_entry(&self, entry: AuthTokenEntry) {
         self.auth_tokens
             .write()
             .unwrap()
             .replace(AuthTokenEntryWrap(entry));
     }
-    /// Locate an auth token entry which matches the predicate with the most
-    /// recent update time.
+
     pub fn find_auth_token_entry<P: Fn(&AuthTokenEntry) -> bool>(
         &self,
         p: P,
@@ -99,12 +85,11 @@ impl PerbootDB {
         matches.sort_by_key(|x| x.0.time_received());
         matches.last().map(|x| x.0.clone())
     }
-    /// Return how many auth tokens are currently tracked.
+
     pub fn auth_tokens_len(&self) -> usize {
         self.auth_tokens.read().unwrap().len()
     }
     #[cfg(test)]
-    /// For testing, return all auth tokens currently tracked.
     pub fn get_all_auth_token_entries(&self) -> Vec<AuthTokenEntry> {
         self.auth_tokens
             .read()

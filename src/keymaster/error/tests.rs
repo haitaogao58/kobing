@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Error handling tests.
-
 use super::*;
 use crate::selinux;
 use anyhow::{anyhow, Context};
@@ -76,8 +74,7 @@ fn binder_exception(ex: ExceptionCode) -> BinderResult<()> {
 #[test]
 fn keystore_error_test() -> anyhow::Result<(), String> {
     crate::keymaster::utils::init_test_logging();
-    // All Error::Rc(x) get mapped on a service specific error
-    // code of x.
+
     for rc in ResponseCode::LOCKED.0..ResponseCode::BACKEND_BUSY.0 {
         assert_eq!(
             Result::<(), i32>::Err(rc),
@@ -87,8 +84,6 @@ fn keystore_error_test() -> anyhow::Result<(), String> {
         );
     }
 
-    // All Keystore Error::Km(x) get mapped on a service
-    // specific error of x.
     for ec in ErrorCode::UNKNOWN_ERROR.0..ErrorCode::ROOT_OF_TRUST_ALREADY_SET.0 {
         assert_eq!(
             Result::<(), i32>::Err(ec),
@@ -98,8 +93,6 @@ fn keystore_error_test() -> anyhow::Result<(), String> {
         );
     }
 
-    // All Keymint errors x received through a Binder Result get mapped on
-    // a service specific error of x.
     for ec in ErrorCode::UNKNOWN_ERROR.0..ErrorCode::ROOT_OF_TRUST_ALREADY_SET.0 {
         assert_eq!(
             Result::<(), i32>::Err(ec),
@@ -110,12 +103,9 @@ fn keystore_error_test() -> anyhow::Result<(), String> {
         );
     }
 
-    // map_km_error creates an Error::Binder variant storing
-    // ExceptionCode::SERVICE_SPECIFIC and the given
-    // service specific error.
     let sse = map_km_error(binder_sse_error(1));
     assert_eq!(Err(Error::Binder(ExceptionCode::ServiceSpecific, 1)), sse);
-    // into_binder then maps it on a service specific error of ResponseCode::SYSTEM_ERROR.
+
     assert_eq!(
         Result::<(), ResponseCode>::Err(ResponseCode::SYSTEM_ERROR),
         sse.context("Non negative service specific error.")
@@ -123,13 +113,12 @@ fn keystore_error_test() -> anyhow::Result<(), String> {
             .map_err(|s| ResponseCode(s.service_specific_error()))
     );
 
-    // map_km_error creates a Error::Binder variant storing the given exception code.
     let binder_exception = map_km_error(binder_exception(ExceptionCode::TransactionFailed));
     assert_eq!(
         Err(Error::BinderTransaction(StatusCode::FailedTransaction)),
         binder_exception
     );
-    // into_binder then maps it on a service specific error of ResponseCode::SYSTEM_ERROR.
+
     assert_eq!(
         Result::<(), ResponseCode>::Err(ResponseCode::SYSTEM_ERROR),
         binder_exception
@@ -138,7 +127,6 @@ fn keystore_error_test() -> anyhow::Result<(), String> {
             .map_err(|s| ResponseCode(s.service_specific_error()))
     );
 
-    // selinux::Error::Perm() needs to be mapped to ResponseCode::PERMISSION_DENIED
     assert_eq!(
         Result::<(), ResponseCode>::Err(ResponseCode::PERMISSION_DENIED),
         nested_selinux_perm()
@@ -146,7 +134,6 @@ fn keystore_error_test() -> anyhow::Result<(), String> {
             .map_err(|s| ResponseCode(s.service_specific_error()))
     );
 
-    // All other errors get mapped on System Error.
     assert_eq!(
         Result::<(), ResponseCode>::Err(ResponseCode::SYSTEM_ERROR),
         nested_other_error()
@@ -154,7 +141,6 @@ fn keystore_error_test() -> anyhow::Result<(), String> {
             .map_err(|s| ResponseCode(s.service_specific_error()))
     );
 
-    // Result::Ok variants get passed to the ok handler.
     assert_eq!(
         Ok(ResponseCode::LOCKED),
         nested_ok(ResponseCode::LOCKED).map_err(into_logged_binder)
@@ -167,7 +153,6 @@ fn keystore_error_test() -> anyhow::Result<(), String> {
     Ok(())
 }
 
-//Helper function to test whether error cases are handled as expected.
 pub fn check_result_contains_error_string<T>(
     result: anyhow::Result<T>,
     expected_error_string: &str,

@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Local types that are equivalent to those generated for the SharedSecret HAL interface
-
 use crate::{cbor_type_error, AsCborValue, CborError};
 use kmr_derive::AsCborValue;
 use std::{

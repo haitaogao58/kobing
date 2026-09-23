@@ -48,88 +48,63 @@ use std::{convert::TryFrom, ops::Deref};
 
 const MAX_MAX_BOOT_LEVEL: BootLevel = BootLevel(1_000_000_000);
 
-/// Allow up to 15 seconds between the user unlocking using a biometric, and the auth
-/// token being used to unlock in [`SuperKeyManager::try_unlock_user_with_biometric`].
-/// This seems short enough for security purposes, while long enough that even the
-/// very slowest device will present the auth token in time.
-const BIOMETRIC_AUTH_TIMEOUT_S: i32 = 15; // seconds
+const BIOMETRIC_AUTH_TIMEOUT_S: i32 = 15;
 
-/// Specify which keys should be wiped given a particular user's UserSuperKeys
 #[derive(PartialEq)]
 pub enum WipeKeyOption {
-    /// Wipe unlocked_device_required_symmetric/private and biometric_unlock keys
     PlaintextAndBiometric,
-    /// Wipe only unlocked_device_required_symmetric/private keys
+
     PlaintextOnly,
 }
 
-/// Encryption algorithm used by a particular type of superencryption key
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SuperEncryptionAlgorithm {
-    /// Symmetric encryption with AES-256-GCM
     Aes256Gcm,
-    /// Public-key encryption with ECDH P-521
+
     EcdhP521,
 }
 
-/// A particular user may have several superencryption keys in the database, each for a
-/// different purpose, distinguished by alias. Each is associated with a static
-/// constant of this type.
 pub struct SuperKeyType<'a> {
-    /// Alias used to look up the key in the `persistent.keyentry` table.
     pub alias: &'a str,
-    /// Encryption algorithm
+
     pub algorithm: SuperEncryptionAlgorithm,
-    /// What to call this key in log messages. Not used for anything else.
+
     pub name: &'a str,
 }
 
-/// The user's CredentialEncrypted super key. This super key is loaded into memory when the user's
-/// credential encrypted storage is unlocked. It remains in memory until the user's credential
-/// encrypted storage is locked, through a device reboot or user logout. This is used to encrypt
-/// keys that require user authentication but not an unlocked device.
 pub const CREDENTIAL_ENCRYPTED_SUPER_KEY: SuperKeyType = SuperKeyType {
     alias: "USER_SUPER_KEY",
     algorithm: SuperEncryptionAlgorithm::Aes256Gcm,
     name: "CredentialEncrypted super key",
 };
 
-/// The user's UnlockedDeviceRequired symmetric super key. This super key is loaded into memory each
-/// time the user unlocks the device, and it is cleared from memory each time the user locks the
-/// device. This is used to encrypt keys that use the UnlockedDeviceRequired key parameter.
 pub const USER_UNLOCKED_DEVICE_REQUIRED_SYMMETRIC_SUPER_KEY: SuperKeyType = SuperKeyType {
     alias: "USER_SCREEN_LOCK_BOUND_KEY",
     algorithm: SuperEncryptionAlgorithm::Aes256Gcm,
     name: "UnlockedDeviceRequired symmetric super key",
 };
 
-/// The user's UnlockedDeviceRequired asymmetric super key. This is used to allow, while the device
-/// is locked, the creation of keys that use the UnlockedDeviceRequired key parameter. The private
-/// part of this key is loaded and cleared when the symmetric key is loaded and cleared.
 pub const USER_UNLOCKED_DEVICE_REQUIRED_P521_SUPER_KEY: SuperKeyType = SuperKeyType {
     alias: "USER_SCREEN_LOCK_BOUND_P521_KEY",
     algorithm: SuperEncryptionAlgorithm::EcdhP521,
     name: "UnlockedDeviceRequired asymmetric super key",
 };
 
-/// Superencryption to apply to a new key.
 #[derive(Debug, Clone, Copy)]
 pub enum SuperEncryptionType {
-    /// Do not superencrypt this key.
     None,
-    /// Superencrypt with the CredentialEncrypted super key.
+
     CredentialEncrypted,
-    /// Superencrypt with an UnlockedDeviceRequired super key.
+
     UnlockedDeviceRequired,
-    /// Superencrypt with a key based on the desired boot level
+
     BootLevel(BootLevel),
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum SuperKeyIdentifier {
-    /// id of the super key in the database.
     DatabaseId(i64),
-    /// Boot level of the encrypting boot level key
+
     BootLevel(BootLevel),
 }
 
@@ -159,12 +134,9 @@ impl SuperKeyIdentifier {
 pub struct SuperKey {
     algorithm: SuperEncryptionAlgorithm,
     key: ZVec,
-    /// Identifier of the encrypting key, used to write an encrypted blob
-    /// back to the database after re-encryption eg on a key update.
+
     id: SuperKeyIdentifier,
-    /// ECDH is more expensive than AES. So on ECDH private keys we set the
-    /// reencrypt_with field to point at the corresponding AES key, and the
-    /// keys will be re-encrypted with AES on first use.
+
     reencrypt_with: Option<Arc<SuperKey>>,
 }
 
@@ -186,13 +158,11 @@ impl AesGcm for SuperKey {
     }
 }
 
-/// A SuperKey that has been encrypted with an AES-GCM key. For
-/// encryption the key is in memory, and for decryption it is in KM.
 struct LockedKey {
     algorithm: SuperEncryptionAlgorithm,
     id: SuperKeyIdentifier,
     nonce: Vec<u8>,
-    ciphertext: Vec<u8>, // with tag appended
+    ciphertext: Vec<u8>,
 }
 
 impl LockedKey {
@@ -251,35 +221,23 @@ impl LockedKey {
     }
 }
 
-/// A user's UnlockedDeviceRequired super keys, encrypted with a biometric-bound key, and
-/// information about that biometric-bound key.
 struct BiometricUnlock {
-    /// List of auth token SIDs that are accepted by the encrypting biometric-bound key.
     sids: Vec<SecureUserId>,
-    /// Key descriptor of the encrypting biometric-bound key.
+
     key_desc: KeyDescriptor,
-    /// The UnlockedDeviceRequired super keys, encrypted with a biometric-bound key.
+
     symmetric: LockedKey,
     private: LockedKey,
 }
 
 #[derive(Default)]
 struct UserSuperKeys {
-    /// The CredentialEncrypted super key is used for synthetic password binding of authentication
-    /// bound keys. There is one key per android user. The key is stored on flash encrypted with a
-    /// key derived from a secret, that is itself derived from the user's synthetic password. (In
-    /// most cases, the user's synthetic password can, in turn, only be decrypted using the user's
-    /// Lock Screen Knowledge Factor or LSKF.) When the user logs into the device this key is
-    /// unlocked, i.e., decrypted, and stays memory resident until the user logs out or the device
-    /// reboots.
     credential_encrypted: Option<Arc<SuperKey>>,
-    /// The UnlockedDeviceRequired symmetric super key works like the CredentialEncrypted super key
-    /// with the distinction that it is cleared from memory when the device is locked.
+
     unlocked_device_required_symmetric: Option<Arc<SuperKey>>,
-    /// When the device is locked, keys that use the UnlockedDeviceRequired key parameter can still
-    /// be created, using ECDH public-key encryption. This field holds the decryption private key.
+
     unlocked_device_required_private: Option<Arc<SuperKey>>,
-    /// Versions of the above two keys, locked behind a biometric.
+
     biometric_unlock: Option<BiometricUnlock>,
 }
 
@@ -339,8 +297,6 @@ impl SuperKeyManager {
         Ok(())
     }
 
-    /// Watch the `keystore.boot_level` system property, and keep boot level up to date.
-    /// Blocks waiting for system property changes, so must be run in its own thread.
     fn watch_boot_level(skm: Arc<RwLock<Self>>) -> Result<()> {
         let w = PropertyWatcher::new("keystore.boot_level")
             .context(ks_err!("PropertyWatcher::new failed"))?;
@@ -349,8 +305,6 @@ impl SuperKeyManager {
                 .read_and_parse(|v| Ok(BootLevel(v.parse::<usize>()?)))
                 .context(ks_err!("read of property failed"))?;
 
-            // This scope limits the skm_guard life, so we don't hold the skm_guard while
-            // waiting.
             {
                 let mut skm_guard = skm.write().unwrap();
                 let boot_level_key_cache = skm_guard
@@ -455,8 +409,6 @@ impl SuperKeyManager {
         })
     }
 
-    /// Returns the CredentialEncrypted superencryption key for the given user ID, or None if the
-    /// user has not yet unlocked the device since boot.
     pub fn get_credential_encrypted_key_by_user_id(
         &self,
         user: AndroidUserId,
@@ -475,8 +427,6 @@ impl SuperKeyManager {
             .and_then(|e| e.credential_encrypted.as_ref().cloned())
     }
 
-    /// Check if a given key is super-encrypted, from its metadata. If so, unwrap the key using
-    /// the relevant super key.
     pub fn unwrap_key_if_required<'a>(
         &self,
         metadata: &BlobMetaData,
@@ -602,7 +552,6 @@ impl SuperKeyManager {
         }))
     }
 
-    /// Unwraps an encrypted key blob given an encryption key.
     fn unwrap_key_with_key(blob: &[u8], metadata: &BlobMetaData, key: &SuperKey) -> Result<ZVec> {
         match key.algorithm {
             SuperEncryptionAlgorithm::Aes256Gcm => match (metadata.iv(), metadata.aead_tag()) {
@@ -644,9 +593,6 @@ impl SuperKeyManager {
         }
     }
 
-    /// Checks if the user's CredentialEncrypted super key exists in the database (or legacy database).
-    /// The reference to self is unused but it is required to prevent calling this function
-    /// concurrently with skm state database changes.
     fn super_key_exists_in_db_for_user(
         &self,
         db: &mut KeystoreDB,
@@ -661,7 +607,6 @@ impl SuperKeyManager {
         .context(ks_err!())
     }
 
-    // Helper function to populate super key cache from the super key blob loaded from the database.
     fn populate_cache_from_super_key_blob(
         &mut self,
         user: AndroidUserId,
@@ -680,7 +625,6 @@ impl SuperKeyManager {
         Ok(super_key)
     }
 
-    /// Extracts super key from the entry loaded from the database.
     pub fn extract_super_key_from_key_entry(
         algorithm: SuperEncryptionAlgorithm,
         entry: KeyEntry,
@@ -695,13 +639,11 @@ impl SuperKeyManager {
                 metadata.aead_tag(),
             ) {
                 (Some(&EncryptedBy::Password), Some(salt), Some(iv), Some(tag)) => {
-                    // Note that password encryption is AES no matter the value of algorithm.
                     let key = pw
                         .derive_key_hkdf(salt, AES_256_KEY_LENGTH)
                         .context(ks_err!("Failed to derive key from password."))?;
 
                     aes_gcm_decrypt(blob, iv, tag, &key).or_else(|_e| {
-                        // Handle old key stored before the switch to HKDF.
                         let key = pw
                             .derive_key_pbkdf2(salt, AES_256_KEY_LENGTH)
                             .context(ks_err!("Failed to derive key from password (PBKDF2)."))?;
@@ -785,9 +727,6 @@ impl SuperKeyManager {
         }))
     }
 
-    /// Encrypts the super key from a key derived from the password, before storing in the database.
-    /// This does not stretch the password; i.e., it assumes that the password is a high-entropy
-    /// synthetic password, not a low-entropy user provided password.
     pub fn encrypt_with_password(
         super_key: &[u8],
         pw: &Password,
@@ -806,9 +745,6 @@ impl SuperKeyManager {
         Ok((encrypted_key, metadata))
     }
 
-    // Helper function to encrypt a key with the given super key. Callers should select which super
-    // key to be used. This is called when a key is super encrypted at its creation as well as at
-    // its upgrade.
     fn encrypt_with_aes_super_key(
         key_blob: &[u8],
         super_key: &SuperKey,
@@ -825,16 +761,6 @@ impl SuperKeyManager {
         Ok((encrypted_key, metadata))
     }
 
-    // Encrypts a given key_blob using a hybrid approach, which can either use the symmetric super
-    // key or the public super key depending on which is available.
-    //
-    // If the symmetric_key is available, the key_blob is encrypted using symmetric encryption with
-    // the provided symmetric super key.  Otherwise, the function loads the public super key from
-    // the KeystoreDB and encrypts the key_blob using ECDH encryption and marks the keyblob to be
-    // re-encrypted with the symmetric super key on the first use.
-    //
-    // This hybrid scheme allows keys that use the UnlockedDeviceRequired key parameter to be
-    // created while the device is locked.
     fn encrypt_with_hybrid_super_key(
         key_blob: &[u8],
         symmetric_key: Option<&SuperKey>,
@@ -847,7 +773,6 @@ impl SuperKeyManager {
                 "Failed to encrypt with UnlockedDeviceRequired symmetric super key."
             ))
         } else {
-            // Symmetric key is not available, use public key encryption
             let loaded = db
                 .load_super_key(public_key_type, user)
                 .context(ks_err!("load_super_key failed."))?;
@@ -872,8 +797,6 @@ impl SuperKeyManager {
         }
     }
 
-    /// Check if super encryption is required and if so, super-encrypt the key to be stored in
-    /// the database.
     #[allow(clippy::too_many_arguments)]
     pub fn handle_super_encryption_on_key_init(
         &self,
@@ -887,9 +810,6 @@ impl SuperKeyManager {
         match Enforcements::super_encryption_required(domain, key_parameters, flags) {
             SuperEncryptionType::None => Ok((key_blob.to_vec(), BlobMetaData::new())),
             SuperEncryptionType::CredentialEncrypted => {
-                // Encrypt the given key blob with the user's CredentialEncrypted super key. If the
-                // user has not logged in or the super keys were never initialized for the user for
-                // some reason, an error is returned.
                 match self
                     .get_user_state(db, user)
                     .context(ks_err!("Failed to get user state for {user:?}"))?
@@ -937,9 +857,6 @@ impl SuperKeyManager {
         }
     }
 
-    /// Check if a given key needs re-super-encryption, from its KeyBlob type.
-    /// If so, re-super-encrypt the key and return a new set of metadata,
-    /// containing the new super encryption information.
     pub fn reencrypt_if_required<'a>(
         key_blob_before_upgrade: &KeyBlob,
         key_after_upgrade: &'a [u8],
@@ -981,8 +898,7 @@ impl SuperKeyManager {
                 )
             }
         };
-        // Derive an AES-256 key from the password and re-encrypt the super key before we insert it
-        // in the database.
+
         let (encrypted_super_key, blob_metadata) =
             Self::encrypt_with_password(&super_key, password).context(ks_err!())?;
         let mut key_metadata = KeyMetaData::new();
@@ -1006,9 +922,6 @@ impl SuperKeyManager {
         }))
     }
 
-    /// Fetch a superencryption key from the database, or create it if it doesn't already exist.
-    /// When this is called, the caller must hold the lock on the SuperKeyManager.
-    /// So it's OK that the check and creation are different DB transactions.
     fn get_or_create_super_key(
         &mut self,
         db: &mut KeystoreDB,
@@ -1032,8 +945,6 @@ impl SuperKeyManager {
         }
     }
 
-    /// Decrypt the UnlockedDeviceRequired super keys for this user using the password and store
-    /// them in memory. If these keys don't exist yet, create them.
     pub fn unlock_unlocked_device_required_keys(
         &mut self,
         db: &mut KeystoreDB,
@@ -1053,13 +964,10 @@ impl SuperKeyManager {
             .unwrap_or((None, None));
 
         if symmetric.is_some() && private.is_some() {
-            // Already unlocked.
             return Ok(());
         }
 
         let aes = if let Some(symmetric) = symmetric {
-            // This is weird. If this point is reached only one of the UnlockedDeviceRequired super
-            // keys was initialized. This should never happen.
             symmetric
         } else {
             self.get_or_create_super_key(
@@ -1073,8 +981,6 @@ impl SuperKeyManager {
         };
 
         let ecdh = if let Some(private) = private {
-            // This is weird. If this point is reached only one of the UnlockedDeviceRequired super
-            // keys was initialized. This should never happen.
             private
         } else {
             self.get_or_create_super_key(
@@ -1095,8 +1001,6 @@ impl SuperKeyManager {
         Ok(())
     }
 
-    /// Protects the user's UnlockedDeviceRequired super keys in a way such that they can only be
-    /// unlocked by the enabled unlock methods.
     pub fn lock_unlocked_device_required_keys(
         &mut self,
         db: &mut KeystoreDB,
@@ -1111,10 +1015,6 @@ impl SuperKeyManager {
             entry.unlocked_device_required_symmetric.as_ref().cloned(),
             entry.unlocked_device_required_private.as_ref().cloned(),
         ) {
-            // If class 3 biometric unlock methods are enabled, create a biometric-encrypted copy of
-            // the keys.  Do this even if weak unlock methods are enabled too; in that case we'll
-            // also retain a plaintext copy of the keys, but that copy will be wiped later if weak
-            // unlock methods expire.  So we need the biometric-encrypted copy too just in case.
             let res = (|| -> Result<()> {
                 let key_desc =
                     KeyMintDevice::internal_descriptor(format!("biometric_unlock_key_{}", user.0));
@@ -1142,7 +1042,7 @@ impl SuperKeyManager {
                 km_dev.create_and_store_key(
                     db,
                     &key_desc,
-                    KeyType::Client, /* TODO Should be Super b/189470584 */
+                    KeyType::Client,
                     |dev| {
                         let _wp =
                             wd::watch("SKM::lock_unlocked_device_required_keys: calling IKeyMintDevice::importKey.");
@@ -1159,11 +1059,9 @@ impl SuperKeyManager {
             })();
             if let Err(e) = res {
                 error!("Error setting up biometric unlock: {e:#?}");
-                // The caller can't do anything about the error, and for security reasons we still
-                // wipe the keys (unless a weak unlock method is enabled).  So just log the error.
             }
         }
-        // Wipe the plaintext copy of the keys, unless a weak unlock method is enabled.
+
         if weak_unlock_enabled {
             Self::log_status_of_unlocked_device_required_keys(user, entry);
         } else {
@@ -1199,8 +1097,6 @@ impl SuperKeyManager {
 
     fn log_status_of_unlocked_device_required_keys(user: AndroidUserId, entry: &UserSuperKeys) {
         let status = match (
-            // Note: the status of the symmetric and private keys should always be in sync.
-            // So we only check one here.
             entry.unlocked_device_required_symmetric.is_some(),
             entry.biometric_unlock.is_some(),
         ) {
@@ -1212,8 +1108,6 @@ impl SuperKeyManager {
         info!("UnlockedDeviceRequired super keys for {user:?} are {status}");
     }
 
-    /// User has unlocked, not using a password. See if any of our stored auth tokens can be used
-    /// to unlock the keys protecting UNLOCKED_DEVICE_REQUIRED keys.
     pub fn try_unlock_user_with_biometric(
         &mut self,
         db: &mut KeystoreDB,
@@ -1223,17 +1117,13 @@ impl SuperKeyManager {
         if entry.unlocked_device_required_symmetric.is_some()
             && entry.unlocked_device_required_private.is_some()
         {
-            // If the keys are already cached in plaintext, then there is no need to decrypt the
-            // biometric-encrypted copy.  Both copies can be present here if the user has both
-            // class 3 biometric and weak unlock methods enabled, and the device was unlocked before
-            // the weak unlock methods expired.
             return Ok(());
         }
         if let Some(biometric) = entry.biometric_unlock.as_ref() {
             let (key_id_guard, key_entry) = db
                 .load_key_entry(
                     &biometric.key_desc,
-                    KeyType::Client, // This should not be a Client key.
+                    KeyType::Client,
                     KeyEntryLoadBits::KM,
                     AID_KEYSTORE,
                     |_, _| Ok(()),
@@ -1277,7 +1167,6 @@ impl SuperKeyManager {
                             return Ok(());
                         }
                         Err(e) => {
-                            // Don't log an error yet, as some other biometric SID might work.
                             errs.push((sid, e));
                         }
                     }
@@ -1293,15 +1182,10 @@ impl SuperKeyManager {
         Ok(())
     }
 
-    /// Returns the keystore locked state of the given user. It requires the thread local
-    /// keystore database and a reference to the legacy migrator because it may need to
-    /// import the super key from the legacy blob database to the keystore database.
     pub fn get_user_state(&self, db: &mut KeystoreDB, user: AndroidUserId) -> Result<UserState> {
         match self.get_credential_encrypted_key_by_user_id_internal(user) {
             Some(super_key) => Ok(UserState::CeUnlocked(super_key)),
             None => {
-                // Check if a super key exists in the database or legacy database.
-                // If so, return locked user state.
                 if self
                     .super_key_exists_in_db_for_user(db, user)
                     .context(ks_err!())?
@@ -1314,20 +1198,16 @@ impl SuperKeyManager {
         }
     }
 
-    /// Deletes all keys and super keys for the given user.
-    /// This is called when a user is deleted.
     pub fn remove_user(&mut self, db: &mut KeystoreDB, user: AndroidUserId) -> Result<()> {
         info!("remove_user({user:?})");
-        // Mark keys created on behalf of the user as unreferenced.
+
         db.unbind_keys_for_user(user)
             .context(ks_err!("Error in unbinding keys for {user:?}"))?;
 
-        // Delete super key in cache, if exists.
         self.forget_all_keys_for_user(user);
         Ok(())
     }
 
-    /// Resets the user's legacy LSKF-bound state without deleting unrelated APP keys.
     pub fn reset_lskf_bound_state(
         &mut self,
         db: &mut KeystoreDB,
@@ -1340,9 +1220,6 @@ impl SuperKeyManager {
         Ok(())
     }
 
-    /// Initializes the given user by creating their super keys, both CredentialEncrypted and
-    /// UnlockedDeviceRequired. If allow_existing is true, then the user already being initialized
-    /// is not considered an error.
     pub fn initialize_user(
         &mut self,
         db: &mut KeystoreDB,
@@ -1350,7 +1227,6 @@ impl SuperKeyManager {
         password: &Password,
         allow_existing: bool,
     ) -> Result<()> {
-        // Create the CredentialEncrypted super key.
         if self.super_key_exists_in_db_for_user(db, user)? {
             info!("CredentialEncrypted super key already exists");
             if !allow_existing {
@@ -1367,15 +1243,12 @@ impl SuperKeyManager {
                 ))?;
         }
 
-        // Create the UnlockedDeviceRequired super keys.
         self.unlock_unlocked_device_required_keys(db, user, password)
             .context(ks_err!(
                 "Failed to create UnlockedDeviceRequired super keys"
             ))
     }
 
-    /// Unlocks an existing user, or initializes the user's super keys if KOBING missed the
-    /// original maintenance event before being hot-replaced into the keystore process.
     pub fn unlock_or_initialize_user(
         &mut self,
         db: &mut KeystoreDB,
@@ -1388,15 +1261,6 @@ impl SuperKeyManager {
         }
     }
 
-    /// Unlocks the given user with the given password.
-    ///
-    /// If the user state is CeLocked:
-    /// - Unlock the user's CredentialEncrypted super key
-    /// - Unlock the user's UnlockedDeviceRequired super keys
-    ///
-    /// If the user state is CeUnlocked:
-    /// - Unlock the user's UnlockedDeviceRequired super keys only
-    ///
     pub fn unlock_user(
         &mut self,
         db: &mut KeystoreDB,
@@ -1437,36 +1301,20 @@ impl SuperKeyManager {
     }
 }
 
-/// This enum represents different states of the user's life cycle in the device.
-/// For now, only three states are defined. More states may be added later.
 pub enum UserState {
-    // The user's super keys exist, and the user is running and their CE storage is unlocked.
-    // Hence, the CredentialEncrypted super key is available in the cache.
     CeUnlocked(Arc<SuperKey>),
-    // The user's super keys exist, but the user is not running and their CE storage is locked.
-    // Hence, the CredentialEncrypted and UnlockedDeviceRequired super keys are not available in
-    // the cache. However, they exist in the database in encrypted form.
+
     CeLocked,
-    // The user's super keys don't exist. I.e., there's no user with the given user ID, or the user
-    // is in the process of being created or destroyed.
+
     Uninitialized,
 }
 
-/// This enum represents three states a KeyMint Blob can be in, w.r.t super encryption.
-/// `Sensitive` holds the non encrypted key and a reference to its super key.
-/// `NonSensitive` holds a non encrypted key that is never supposed to be encrypted.
-/// `Ref` holds a reference to a key blob when it does not need to be modified if its
-/// life time allows it.
 pub enum KeyBlob<'a> {
     Sensitive {
         key: ZVec,
-        /// If KeyMint reports that the key must be upgraded, we must
-        /// re-encrypt the key before writing to the database; we use
-        /// this key.
+
         reencrypt_with: Arc<SuperKey>,
-        /// If this key was decrypted with an ECDH key, we want to
-        /// re-encrypt it on first use whether it was upgraded or not;
-        /// this field indicates that that's necessary.
+
         force_reencrypt: bool,
     },
     NonSensitive(Vec<u8>),
@@ -1486,7 +1334,6 @@ impl KeyBlob<'_> {
     }
 }
 
-/// Deref returns a reference to the key material in any variant.
 impl Deref for KeyBlob<'_> {
     type Target = [u8];
 

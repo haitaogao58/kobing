@@ -28,24 +28,18 @@ use std::{
     vec::Vec,
 };
 
-/// Key size in bits.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, AsCborValue)]
 pub struct KeySizeInBits(pub u32);
 
-/// RSA exponent.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, AsCborValue)]
 pub struct RsaExponent(pub u64);
 
-/// Default maximum supported size for CBOR-serialized messages.
 pub const DEFAULT_MAX_SIZE: usize = 4096;
 
-/// Marker type indicating failure to convert into a wire type.  For `enum` wire types, the variant
-/// names match the `enum` whose value failed to convert.
 #[derive(Debug)]
 pub enum ValueNotRecognized {
-    // Enum type names.
     KeyPurpose,
     Algorithm,
     BlockMode,
@@ -63,7 +57,7 @@ pub enum ValueNotRecognized {
     KmVersion,
     EekCurve,
     Origin,
-    // Non-enum types.
+
     Bool,
     Blob,
     DateTime,
@@ -71,42 +65,22 @@ pub enum ValueNotRecognized {
     LongInteger,
 }
 
-/// Trait that associates an enum value of the specified type with a type.
-/// Values of the `enum` type `T` are used to identify particular message types.
-/// A message type implements `Code<T>` to indicate which `enum` value it is
-/// associated with.
-///
-/// For example, an `enum WhichMsg { Hello, Goodbye }` could be used to distinguish
-/// between `struct HelloMsg` and `struct GoodbyeMsg` instances, in which case the
-/// latter types would both implement `Code<WhichMsg>` with `CODE` values of
-/// `WhichMsg::Hello` and `WhichMsg::Goodbye` respectively.
 pub trait Code<T> {
-    /// The enum value identifying this request/response.
     const CODE: T;
-    /// Return the enum value associated with the underlying type of this item.
+
     fn code(&self) -> T {
         Self::CODE
     }
 }
 
-/// Internal equivalent of the `keymint::BeginResult` type; instead of the Binder object reference
-/// there is an opaque `op_handle` value that the bottom half implementation uses to identify the
-/// in-progress operation.  This field is included as an extra parameter in all of the per-operation
-/// ...Request types.
 #[derive(Debug, Default, AsCborValue)]
 pub struct InternalBeginResult {
     pub challenge: i64,
     pub params: Vec<KeyParam>,
-    // Extra for internal use: returned by bottom half of KeyMint implementation, used on
-    // all subsequent operation methods to identify the operation.
+
     pub op_handle: i64,
 }
 
-// The following types encapsulate the arguments to each method into a corresponding ..Request
-// struct, and the return value and out parameters into a corresponding ..Response struct.
-// These are currently hand-generated, but they could be auto-generated from the AIDL spec.
-
-// IKeyMintDevice methods.
 #[derive(Debug, AsCborValue)]
 pub struct GetHardwareInfoRequest {}
 #[derive(Debug, AsCborValue)]
@@ -184,7 +158,7 @@ pub struct BeginRequest {
 }
 #[derive(Debug, AsCborValue)]
 pub struct BeginResponse {
-    pub ret: InternalBeginResult, // special case: no Binder ref here
+    pub ret: InternalBeginResult,
 }
 #[derive(Debug, AsCborValue)]
 pub struct EarlyBootEndedRequest {}
@@ -242,14 +216,9 @@ pub struct SetAdditionalAttestationInfoRequest {
 #[derive(Debug, AsCborValue)]
 pub struct SetAdditionalAttestationInfoResponse {}
 
-// IKeyMintOperation methods.  These ...Request structures include an extra `op_handle` field whose
-// value was returned in the `InternalBeginResult` type and which identifies the operation in
-// progress.
-//
-// `Debug` deliberately not derived to reduce the chances of inadvertent leakage of private info.
 #[derive(Debug, Clone, AsCborValue)]
 pub struct UpdateAadRequest {
-    pub op_handle: i64, // Extra for internal use, from `InternalBeginResult`.
+    pub op_handle: i64,
     pub input: Vec<u8>,
     pub auth_token: Option<HardwareAuthToken>,
     pub timestamp_token: Option<TimeStampToken>,
@@ -258,7 +227,7 @@ pub struct UpdateAadRequest {
 pub struct UpdateAadResponse {}
 #[derive(Debug, Clone, AsCborValue)]
 pub struct UpdateRequest {
-    pub op_handle: i64, // Extra for internal use, from `InternalBeginResult`.
+    pub op_handle: i64,
     pub input: Vec<u8>,
     pub auth_token: Option<HardwareAuthToken>,
     pub timestamp_token: Option<TimeStampToken>,
@@ -269,7 +238,7 @@ pub struct UpdateResponse {
 }
 #[derive(Debug, AsCborValue)]
 pub struct FinishRequest {
-    pub op_handle: i64, // Extra for internal use, from `InternalBeginResult`.
+    pub op_handle: i64,
     pub input: Option<Vec<u8>>,
     pub signature: Option<Vec<u8>>,
     pub auth_token: Option<HardwareAuthToken>,
@@ -282,12 +251,10 @@ pub struct FinishResponse {
 }
 #[derive(Debug, AsCborValue)]
 pub struct AbortRequest {
-    pub op_handle: i64, // Extra for internal use, from `InternalBeginResult`.
+    pub op_handle: i64,
 }
 #[derive(Debug, AsCborValue)]
 pub struct AbortResponse {}
-
-// IRemotelyProvisionedComponent methods.
 
 #[derive(Debug, AsCborValue)]
 pub struct GetRpcHardwareInfoRequest {}
@@ -327,7 +294,6 @@ pub struct GenerateCertificateRequestV2Response {
     pub ret: Vec<u8>,
 }
 
-// ISharedSecret methods.
 #[derive(Debug, AsCborValue)]
 pub struct GetSharedSecretParametersRequest {}
 #[derive(Debug, AsCborValue)]
@@ -343,7 +309,6 @@ pub struct ComputeSharedSecretResponse {
     pub ret: Vec<u8>,
 }
 
-// ISecureClock methods.
 #[derive(Debug, AsCborValue)]
 pub struct GenerateTimeStampRequest {
     pub challenge: i64,
@@ -353,20 +318,15 @@ pub struct GenerateTimeStampResponse {
     pub ret: TimeStampToken,
 }
 
-// The following messages have no equivalent on a HAL interface, but are used internally
-// between components.
-
-// HAL->TA at start of day.
 #[derive(Debug, PartialEq, Eq, AsCborValue)]
 pub struct SetHalInfoRequest {
     pub os_version: u32,
-    pub os_patchlevel: u32,     // YYYYMM format
-    pub vendor_patchlevel: u32, // YYYYMMDD format
+    pub os_patchlevel: u32,
+    pub vendor_patchlevel: u32,
 }
 #[derive(Debug, AsCborValue)]
 pub struct SetHalInfoResponse {}
 
-// HAL->TA at start of day.
 #[derive(Debug, PartialEq, Eq, AsCborValue)]
 pub struct SetHalVersionRequest {
     pub aidl_version: u32,
@@ -374,22 +334,19 @@ pub struct SetHalVersionRequest {
 #[derive(Debug, AsCborValue)]
 pub struct SetHalVersionResponse {}
 
-// Boot loader->TA at start of day.
 #[derive(Debug, AsCborValue)]
 pub struct SetBootInfoRequest {
     pub verified_boot_key: Vec<u8>,
     pub device_boot_locked: bool,
     pub verified_boot_state: i32,
     pub verified_boot_hash: Vec<u8>,
-    pub boot_patchlevel: u32, // YYYYMMDD format
+    pub boot_patchlevel: u32,
 }
 #[derive(Debug, AsCborValue)]
 pub struct SetBootInfoResponse {}
 
-/// Attestation ID information.
 #[derive(Clone, Debug, AsCborValue, PartialEq, Eq, Default)]
 pub struct AttestationIdInfo {
-    // The following fields are byte vectors that typically hold UTF-8 string data.
     pub brand: Vec<u8>,
     pub device: Vec<u8>,
     pub product: Vec<u8>,
@@ -401,7 +358,6 @@ pub struct AttestationIdInfo {
     pub model: Vec<u8>,
 }
 
-// Provisioner->TA at device provisioning time.
 #[derive(Debug, AsCborValue)]
 pub struct SetAttestationIdsRequest {
     pub ids: AttestationIdInfo,
@@ -409,54 +365,12 @@ pub struct SetAttestationIdsRequest {
 #[derive(Debug, AsCborValue)]
 pub struct SetAttestationIdsResponse {}
 
-// Result of an operation, as an error code and a response message (only present when
-// `error_code` is zero).
 #[derive(AsCborValue, Debug)]
 pub struct PerformOpResponse {
     pub error_code: i32,
     pub rsp: Option<PerformOpRsp>,
 }
 
-/// Declare a collection of related enums for a code and a pair of types.
-///
-/// An invocation like:
-/// ```ignore
-/// declare_req_rsp_enums! { KeyMintOperation  => (PerformOpReq, PerformOpRsp) {
-///     DeviceGetHardwareInfo = 0x11 => (GetHardwareInfoRequest, GetHardwareInfoResponse),
-///     DeviceAddRngEntropy = 0x12 =>   (AddRngEntropyRequest, AddRngEntropyResponse),
-/// } }
-/// ```
-/// will emit three `enum` types all of whose variant names are the same (taken from the leftmost
-/// column), but whose contents are:
-///
-/// - the numeric values (second column)
-///   ```ignore
-///   #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
-///   enum KeyMintOperation {
-///       DeviceGetHardwareInfo = 0x11,
-///       DeviceAddRngEntropy = 0x12,
-///   }
-///   ```
-///
-/// - the types from the third column:
-///   ```ignore
-///   #[derive(Debug)]
-///   enum PerformOpReq {
-///       DeviceGetHardwareInfo(GetHardwareInfoRequest),
-///       DeviceAddRngEntropy(AddRngEntropyRequest),
-///   }
-///   ```
-///
-/// - the types from the fourth column:
-///   ```ignore
-///   #[derive(Debug)]
-///   enum PerformOpRsp {
-///       DeviceGetHardwareInfo(GetHardwareInfoResponse),
-///       DeviceAddRngEntropy(AddRngEntropyResponse),
-///   }
-//   ```
-///
-/// Each of these enum types will also get an implementation of [`AsCborValue`]
 macro_rules! declare_req_rsp_enums {
     {
         $cenum:ident => ($reqenum:ident, $rspenum:ident)
@@ -485,23 +399,23 @@ macro_rules! declare_req_rsp_enums {
         }
 
         impl AsCborValue for $cenum {
-            /// Create an instance of the enum from a [`cbor::value::Value`], checking that the
-            /// value is valid.
+
+
             fn from_cbor_value(value: $crate::cbor::value::Value) ->
                 Result<Self, crate::CborError> {
                 use core::convert::TryInto;
-                // First get the int value as an `i32`.
+
                 let v: i32 = match value {
                     $crate::cbor::value::Value::Integer(i) => i.try_into().map_err(|_| {
                         crate::CborError::OutOfRangeIntegerValue
                     })?,
                     v => return crate::cbor_type_error(&v, &"int"),
                 };
-                // Now check it is one of the defined enum values.
+
                 Self::n(v).ok_or(crate::CborError::NonEnumValue)
             }
-            /// Convert the enum value to a [`cbor::value::Value`] (without checking that the
-            /// contained enum value is valid).
+
+
             fn to_cbor_value(self) -> Result<$crate::cbor::value::Value, crate::CborError> {
                 Ok($crate::cbor::value::Value::Integer((self as i64).into()))
             }
@@ -625,10 +539,6 @@ macro_rules! declare_req_rsp_enums {
     };
 }
 
-// Possible KeyMint operation requests, as:
-// - an enum value with an explicit numeric value
-// - a request enum which has an operation code associated to each variant
-// - a response enum which has the same operation code associated to each variant.
 declare_req_rsp_enums! { KeyMintOperation  =>    (PerformOpReq, PerformOpRsp) {
     DeviceGetHardwareInfo = 0x11 =>                    (GetHardwareInfoRequest, GetHardwareInfoResponse),
     DeviceAddRngEntropy = 0x12 =>                      (AddRngEntropyRequest, AddRngEntropyResponse),
@@ -640,7 +550,7 @@ declare_req_rsp_enums! { KeyMintOperation  =>    (PerformOpReq, PerformOpRsp) {
     DeviceDeleteAllKeys = 0x18 =>                      (DeleteAllKeysRequest, DeleteAllKeysResponse),
     DeviceDestroyAttestationIds = 0x19 =>              (DestroyAttestationIdsRequest, DestroyAttestationIdsResponse),
     DeviceBegin = 0x1a =>                              (BeginRequest, BeginResponse),
-    // 0x1b used to be DeviceDeviceLocked, but it was never used and consequently was removed.
+
     DeviceEarlyBootEnded = 0x1c =>                     (EarlyBootEndedRequest, EarlyBootEndedResponse),
     DeviceConvertStorageKeyToEphemeral = 0x1d =>       (ConvertStorageKeyToEphemeralRequest, ConvertStorageKeyToEphemeralResponse),
     DeviceGetKeyCharacteristics = 0x1e =>              (GetKeyCharacteristicsRequest, GetKeyCharacteristicsResponse),
@@ -665,7 +575,6 @@ declare_req_rsp_enums! { KeyMintOperation  =>    (PerformOpReq, PerformOpRsp) {
     SetAdditionalAttestationInfo = 0x91 =>             (SetAdditionalAttestationInfoRequest, SetAdditionalAttestationInfoResponse),
 } }
 
-/// Indicate whether an operation is part of the `IRemotelyProvisionedComponent` HAL.
 pub fn is_rpc_operation(code: KeyMintOperation) -> bool {
     matches!(
         code,

@@ -175,8 +175,6 @@ pub(super) fn authorization_requires_mirror(request: &ParsedAuthorizationRequest
 pub(super) fn authorization_mirror_failure_policy(
     request: &ParsedAuthorizationRequest,
 ) -> MirrorFailurePolicy {
-    // AddAuthToken only feeds per-boot cached state and a later authentication replenishes it.
-    // Lock and user-state notifications must remain ordered and fail-closed.
     if matches!(request, ParsedAuthorizationRequest::AddAuthToken { .. }) {
         MirrorFailurePolicy::BestEffort
     } else {

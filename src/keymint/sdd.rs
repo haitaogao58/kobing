@@ -12,11 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Secure deletion data manager for Cuttlefish.
-//! This implementetation is "secure" in the sense that the underlying storage can not be accessed
-//! by Android. However, it is does not provide any protections against the host, i.e. anyone with
-//! access to the host can read and alter the contents of deletion data.
-
 use crate::proto::storage;
 use kmr_common::{crypto, keyblob, km_err, Error};
 use log::error;
@@ -90,7 +85,6 @@ fn write_sdd_file(data: &storage::SecureDeletionData) -> Result<(), Error> {
 }
 
 pub struct HostSddManager {
-    // Local cache of data stored on disk.
     data: storage::SecureDeletionData,
 }
 
@@ -140,7 +134,6 @@ impl HostSddManager {
     }
 
     fn init(&mut self, rng: &mut dyn crypto::Rng) -> Result<(), Error> {
-        // Restore data from disk if it was previously saved.
         if path::Path::new(SECURE_DELETION_DATA_FILE).exists() {
             info!("parsing existing secure deletion data file");
             self.data = read_sdd_file()?;
@@ -152,10 +145,8 @@ impl HostSddManager {
 
         info!("creating secure deletion data file");
 
-        // Initialize factory reset secret.
         Self::randomize_factory_secret(&mut self.data, rng);
 
-        // Create secure deletion data file.
         write_sdd_file(&self.data)
     }
 
@@ -193,7 +184,6 @@ impl keyblob::SecureDeletionSecretManager for HostSddManager {
         rng: &mut dyn crypto::Rng,
         _purpose: keyblob::SlotPurpose,
     ) -> Result<(keyblob::SecureDeletionSlot, keyblob::SecureDeletionData), Error> {
-        // Allocate new slot ID.
         let slot_id = self.data.last_free_slot.checked_add(1).ok_or(km_err!(
             RollbackResistanceUnavailable,
             "ran out of slot IDs"
@@ -207,21 +197,17 @@ impl keyblob::SecureDeletionSecretManager for HostSddManager {
             slot_id
         );
 
-        // Generate new sdd.
         let mut sdd = self.get_or_create_factory_reset_secret(rng)?;
         rng.fill_bytes(&mut sdd.secure_deletion_secret[..]);
 
-        // Cache the secure deletion secret locally.
         self.data
             .secure_deletion_secrets
             .insert(slot_id, sdd.secure_deletion_secret.to_vec());
         self.data.last_free_slot = slot_id;
 
-        // Save the secure deletion secret on disk.
         match write_sdd_file(&self.data) {
             Ok(_) => Ok((keyblob::SecureDeletionSlot(slot_id), sdd)),
             Err(e) => {
-                // Restore cached state.
                 self.data.secure_deletion_secrets.remove(&slot_id).unwrap();
                 self.data.last_free_slot = slot_id - 1;
                 Err(e)
@@ -257,9 +243,7 @@ impl keyblob::SecureDeletionSecretManager for HostSddManager {
             .remove(&slot_id)
             .ok_or(km_err!(InvalidKeyBlob, "slot ID not found."))?;
 
-        // Save the secure deletion secret on disk.
         if let Err(e) = write_sdd_file(&self.data) {
-            // Restore cached state.
             self.data
                 .secure_deletion_secrets
                 .insert(slot_id, secret)
@@ -273,8 +257,6 @@ impl keyblob::SecureDeletionSecretManager for HostSddManager {
         info!("deleting all secure deletion secrets");
         self.data = storage::SecureDeletionData::default();
         if path::Path::new(SECURE_DELETION_DATA_FILE).exists() {
-            // We want to guarantee that if this function returns, all secrets have been
-            // successfully deleted. So, panic if we fail to delete the file.
             for _ in 0..5 {
                 match fs::remove_file(SECURE_DELETION_DATA_FILE) {
                     Ok(_) => return,

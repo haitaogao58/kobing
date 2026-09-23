@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This is the Keystore 2.0 Enforcements module.
-// TODO: more description to follow.
-
 use crate::android::hardware::security::keymint::{
     Algorithm::Algorithm, ErrorCode::ErrorCode as Ec, HardwareAuthToken::HardwareAuthToken,
     HardwareAuthenticatorType::HardwareAuthenticatorType,
@@ -56,16 +53,15 @@ type FinishAuthTokens = (
 
 #[derive(Debug)]
 enum AuthRequestState {
-    /// An outstanding per operation authorization request.
     OpAuth,
-    /// An outstanding request for a timestamp token.
+
     TimeStamp(Mutex<Receiver<Result<TimeStampToken, Error>>>),
 }
 
 #[derive(Debug)]
 struct AuthRequest {
     state: AuthRequestState,
-    /// This need to be set to Some to fulfill an AuthRequestState::OpAuth.
+
     hat: Mutex<Option<HardwareAuthToken>>,
 }
 
@@ -118,50 +114,28 @@ impl AuthRequest {
     }
 }
 
-/// DeferredAuthState describes how auth tokens and timestamp tokens need to be provided when
-/// updating and finishing an operation.
 #[derive(Debug)]
 enum DeferredAuthState {
-    /// Used when an operation does not require further authorization.
     NoAuthRequired,
-    /// Indicates that the operation requires an operation specific token. This means we have
-    /// to return an operation challenge to the client which should reward us with an
-    /// operation specific auth token. If it is not provided before the client calls update
-    /// or finish, the operation fails as not authorized.
+
     OpAuthRequired(Vec<SecureUserId>, HardwareAuthenticatorType),
-    /// Indicates that the operation requires a time stamp token. The auth token was already
-    /// loaded from the database, but it has to be accompanied by a time stamp token to inform
-    /// the target KM with a different clock about the time on the authenticators.
+
     TimeStampRequired(HardwareAuthToken),
-    /// In this state the auth info is waiting for the deferred authorizations to come in.
-    /// We block on timestamp tokens, because we can always make progress on these requests.
-    /// The per-op auth tokens might never come, which means we fail if the client calls
-    /// update or finish before we got a per-op auth token.
+
     Waiting(Arc<AuthRequest>),
-    /// In this state we have gotten all of the required tokens, we just cache them to
-    /// be used when the operation progresses.
+
     Token(HardwareAuthToken, Option<TimeStampToken>),
 }
 
-/// Auth info hold all of the authorization related information of an operation. It is stored
-/// in and owned by the operation. It is constructed by authorize_create and stays with the
-/// operation until it completes.
 #[derive(Debug)]
 pub struct AuthInfo {
     state: DeferredAuthState,
-    /// An optional key id required to update the usage count if the key usage is limited.
+
     key_usage_limited: Option<i64>,
     confirmation_token_receiver: Option<ConfirmationTokenReceiver>,
 }
 
 struct TokenReceiverMap {
-    /// The map maps an outstanding challenge to a TokenReceiver. If an incoming Hardware Auth
-    /// Token (HAT) has the map key in its challenge field, it gets passed to the TokenReceiver
-    /// and the entry is removed from the map. In the case where no HAT is received before the
-    /// corresponding operation gets dropped, the entry goes stale. So every time the cleanup
-    /// counter (second field in the tuple) turns 0, the map is cleaned from stale entries.
-    /// The cleanup counter is decremented every time a new receiver is added.
-    /// and reset to TokenReceiverMap::CLEANUP_PERIOD + 1 after each cleanup.
     map_and_cleanup_counter: Mutex<(HashMap<Challenge, TokenReceiver>, u8)>,
 }
 
@@ -174,16 +148,10 @@ impl Default for TokenReceiverMap {
 }
 
 impl TokenReceiverMap {
-    /// There is a chance that receivers may become stale because their operation is dropped
-    /// without ever being authorized. So occasionally we iterate through the map and throw
-    /// out obsolete entries.
-    /// This is the number of calls to add_receiver between cleanups.
     const CLEANUP_PERIOD: u8 = 25;
 
     pub fn add_auth_token(&self, hat: HardwareAuthToken) {
         let recv = {
-            // Limit the scope of the mutex guard, so that it is not held while the auth token is
-            // added.
             let mut map = self.map_and_cleanup_counter.lock().unwrap();
             let (ref mut map, _) = *map;
             map.remove_entry(&Challenge(hat.challenge))
@@ -211,7 +179,7 @@ impl TokenReceiverMap {
 #[derive(Debug)]
 struct TokenReceiver {
     req: Weak<AuthRequest>,
-    // Remember the SIDs and auth_type that the token is expected to satisfy.
+
     sids: Vec<SecureUserId>,
     auth_type: HardwareAuthenticatorType,
 }
@@ -223,7 +191,6 @@ impl TokenReceiver {
 
     fn add_auth_token(&self, hat: HardwareAuthToken) {
         if let Some(state_arc) = self.req.upgrade() {
-            // Emit a warning if the auth token doesn't satisfy expectations.
             if (self.auth_type.0 & hat.authenticatorType.0) == 0 {
                 error!(
                     "Per-op {hat:?} doesn't match auth type {:?} required for key!",
@@ -261,9 +228,6 @@ fn timestamp_token_request(challenge: Challenge, sender: Sender<Result<TimeStamp
 }
 
 impl AuthInfo {
-    /// This function gets called after an operation was successfully created.
-    /// It makes all the preparations required, so that the operation has all the authentication
-    /// related artifacts to advance on update and finish.
     pub fn finalize_create_authorization(
         &mut self,
         challenge: Challenge,
@@ -295,15 +259,10 @@ impl AuthInfo {
         }
     }
 
-    /// This function is the authorization hook called before operation update.
-    /// It returns the auth tokens required by the operation to commence update.
     pub fn before_update(&mut self) -> Result<(Option<HardwareAuthToken>, Option<TimeStampToken>)> {
         self.get_auth_tokens()
     }
 
-    /// This function is the authorization hook called before operation finish.
-    /// It returns the auth tokens required by the operation to commence finish.
-    /// The third token is a confirmation token.
     pub fn before_finish(&mut self) -> Result<FinishAuthTokens> {
         let mut confirmation_token: Option<Vec<u8>> = None;
         if let Some(ref confirmation_token_receiver) = self.confirmation_token_receiver {
@@ -311,8 +270,6 @@ impl AuthInfo {
             if let Some(ref receiver) = *locked_receiver {
                 loop {
                     match receiver.try_recv() {
-                        // As long as we get tokens we loop and discard all but the most
-                        // recent one.
                         Ok(t) => confirmation_token = Some(t),
                         Err(TryRecvError::Empty) => break,
                         Err(TryRecvError::Disconnected) => {
@@ -327,14 +284,8 @@ impl AuthInfo {
             .map(|(hat, tst)| (hat, tst, confirmation_token))
     }
 
-    /// This function is the authorization hook called after finish succeeded.
-    /// As of this writing it checks if the key was a limited use key. If so it updates the
-    /// use counter of the key in the database. When the use counter is depleted, the key gets
-    /// marked for deletion and the garbage collector is notified.
     pub fn after_finish(&self) -> Result<()> {
         if let Some(key_id) = self.key_usage_limited {
-            // On the last successful use, the key gets deleted. In this case we
-            // have to notify the garbage collector.
             DB.with(|db| {
                 db.borrow_mut()
                     .check_and_update_key_usage_count(key_id)
@@ -345,11 +296,6 @@ impl AuthInfo {
         Ok(())
     }
 
-    /// This function returns the auth tokens as needed by the ongoing operation or fails with
-    /// [`ErrorCode::KEY_USER_NOT_AUTHENTICATED`]. If this was called for the first time after a
-    /// deferred authorization was requested by `finalize_create_authorization`, this function may
-    /// block on the generation of a time stamp token. It then moves the tokens into the
-    /// [`DeferredAuthState::Token`] state for future use.
     fn get_auth_tokens(&mut self) -> Result<(Option<HardwareAuthToken>, Option<TimeStampToken>)> {
         let deferred_tokens = if let DeferredAuthState::Waiting(ref auth_request) = self.state {
             Some(
@@ -374,7 +320,7 @@ impl AuthInfo {
                     This should not happen."
                 ))
             }
-            // This should not be reachable, because it should have been handled above.
+
             DeferredAuthState::Waiting(_) => {
                 Err(Error::sys()).context(ks_err!("AuthInfo::get_auth_tokens: Cannot be reached.",))
             }
@@ -382,30 +328,18 @@ impl AuthInfo {
     }
 }
 
-/// Enforcements data structure
 #[derive(Default)]
 pub struct Enforcements {
-    /// This hash set contains the user ids for whom the device is currently unlocked. If a user id
-    /// is not in the set, it implies that the device is locked for the user.
     device_unlocked_set: Mutex<HashSet<AndroidUserId>>,
-    /// Channel that communicates with a separate thread that handles the lock state notification
-    /// queue.
+
     lock_state_task: RwLock<Option<Arc<AsyncTask>>>,
-    /// This field maps outstanding auth challenges to their operations. When an auth token with the
-    /// right challenge is received it is passed to the map using
-    /// [`TokenReceiverMap::add_auth_token()`] which removes the entry from the map. If an entry
-    /// goes stale, because the operation gets dropped before an auth token is received, the map is
-    /// cleaned up in regular intervals.
+
     op_auth_map: TokenReceiverMap,
-    /// The enforcement module will try to get a confirmation token from this channel whenever
-    /// an operation that requires confirmation finishes.
+
     confirmation_token_receiver: ConfirmationTokenReceiver,
 }
 
 impl Enforcements {
-    /// Install the confirmation token receiver. The enforcement module will try to get a
-    /// confirmation token from this channel whenever an operation that requires confirmation
-    /// finishes.
     pub fn install_confirmation_token_receiver(
         &self,
         confirmation_token_receiver: Receiver<Vec<u8>>,
@@ -413,17 +347,6 @@ impl Enforcements {
         *self.confirmation_token_receiver.lock().unwrap() = Some(confirmation_token_receiver);
     }
 
-    /// Checks if a create call is authorized, given key parameters and operation parameters.
-    /// It returns an optional immediate auth token which can be presented to begin, and an
-    /// AuthInfo object which stays with the authorized operation and is used to obtain
-    /// auth tokens and timestamp tokens as required by the operation.
-    /// With regard to auth tokens, the following steps are taken:
-    ///
-    /// If no key parameters are given (typically when the client is self managed,
-    /// see [`Domain::BLOB`]) nothing is enforced.
-    /// If the key is time-bound, find a matching auth token from the database.
-    /// If the above step is successful, and if requires_timestamp is given, the returned
-    /// AuthInfo will provide a Timestamp token as appropriate.
     pub fn authorize_create(
         &self,
         purpose: KeyPurpose,
@@ -446,14 +369,13 @@ impl Enforcements {
         };
 
         match purpose {
-            // Allow SIGN, DECRYPT for both symmetric and asymmetric keys.
             KeyPurpose::SIGN | KeyPurpose::DECRYPT => {}
-            // Rule out WRAP_KEY purpose
+
             KeyPurpose::WRAP_KEY => {
                 return Err(Error::Km(Ec::INCOMPATIBLE_PURPOSE))
                     .context(ks_err!("WRAP_KEY purpose is not allowed here.",));
             }
-            // Allow AGREE_KEY for EC keys only.
+
             KeyPurpose::AGREE_KEY => {
                 for kp in key_params.iter() {
                     if kp.get_tag() == Tag::ALGORITHM
@@ -465,8 +387,6 @@ impl Enforcements {
                 }
             }
             KeyPurpose::VERIFY | KeyPurpose::ENCRYPT => {
-                // We do not support ENCRYPT and VERIFY (the remaining two options of purpose) for
-                // asymmetric keys.
                 for kp in key_params.iter() {
                     match *kp.key_parameter_value() {
                         KeyParameterValue::Algorithm(Algorithm::RSA)
@@ -486,10 +406,7 @@ impl Enforcements {
                 ));
             }
         }
-        // The following variables are to record information from key parameters to be used in
-        // enforcements, when two or more such pieces of information are required for enforcements.
-        // There is only one additional variable than what legacy keystore has, but this helps
-        // reduce the number of for loops on key parameters from 3 to 1, compared to legacy keystore
+
         let mut key_purpose_authorized: bool = false;
         let mut user_auth_type: Option<HardwareAuthenticatorType> = None;
         let mut no_auth_required: bool = false;
@@ -502,8 +419,6 @@ impl Enforcements {
         let mut confirmation_token_receiver: Option<ConfirmationTokenReceiver> = None;
         let mut max_boot_level: Option<BootLevel> = None;
 
-        // iterate through key parameters, recording information we need for authorization
-        // enforcements later, or enforcing authorizations in place, where applicable
         for key_param in key_params.iter() {
             match key_param.key_parameter_value() {
                 KeyParameterValue::NoAuthRequired => {
@@ -516,9 +431,6 @@ impl Enforcements {
                     user_auth_type = Some(*a);
                 }
                 KeyParameterValue::KeyPurpose(p) => {
-                    // The following check has the effect of key_params.contains(purpose)
-                    // Also, authorizing purpose can not be completed here, if there can be multiple
-                    // key parameters for KeyPurpose.
                     key_purpose_authorized = key_purpose_authorized || *p == purpose;
                 }
                 KeyParameterValue::CallerNonce => {
@@ -554,9 +466,6 @@ impl Enforcements {
                     unlocked_device_required = true;
                 }
                 KeyParameterValue::UsageCountLimit(_) => {
-                    // We don't examine the limit here because this is enforced on finish.
-                    // Instead, we store the key_id so that finish can look up the key
-                    // in the database again and check and update the counter.
                     key_usage_limited = Some(key_id);
                 }
                 KeyParameterValue::TrustedConfirmationRequired => {
@@ -565,29 +474,22 @@ impl Enforcements {
                 KeyParameterValue::MaxBootLevel(level) => {
                     max_boot_level = Some(BootLevel(*level as usize));
                 }
-                // NOTE: as per offline discussion, sanitizing key parameters and rejecting
-                // create operation if any non-allowed tags are present, is not done in
-                // authorize_create (unlike in legacy keystore where AuthorizeBegin is rejected if
-                // a subset of non-allowed tags are present). Because sanitizing key parameters
-                // should have been done during generate/import key, by KeyMint.
-                _ => { /*Do nothing on all the other key parameters, as in legacy keystore*/ }
+
+                _ => {}
             }
         }
 
-        // authorize the purpose
         if !key_purpose_authorized {
             return Err(Error::Km(Ec::INCOMPATIBLE_PURPOSE))
                 .context(ks_err!("the purpose is not authorized."));
         }
 
-        // if both NO_AUTH_REQUIRED and USER_SECURE_ID tags are present, return error
         if !user_sids.is_empty() && no_auth_required {
             return Err(Error::Km(Ec::INVALID_KEY_BLOB)).context(ks_err!(
                 "key has both NO_AUTH_REQUIRED and USER_SECURE_ID tags."
             ));
         }
 
-        // if either of auth_type or secure_id is present and the other is not present, return error
         if (user_auth_type.is_some() && user_sids.is_empty())
             || (user_auth_type.is_none() && !user_sids.is_empty())
         {
@@ -596,7 +498,6 @@ impl Enforcements {
             ));
         }
 
-        // validate caller nonce for origination purposes
         if (purpose == KeyPurpose::ENCRYPT || purpose == KeyPurpose::SIGN)
             && !caller_nonce_allowed
             && op_params.iter().any(|kp| kp.tag == Tag::NONCE)
@@ -606,12 +507,8 @@ impl Enforcements {
             ));
         }
 
-        if unlocked_device_required {
-            // check the device locked status. If locked, operations on the key are not
-            // allowed.
-            if self.is_device_locked(user) {
-                return Err(Error::Km(Ec::DEVICE_LOCKED)).context(ks_err!("device is locked."));
-            }
+        if unlocked_device_required && self.is_device_locked(user) {
+            return Err(Error::Km(Ec::DEVICE_LOCKED)).context(ks_err!("device is locked."));
         }
 
         if let Some(level) = max_boot_level {
@@ -626,7 +523,7 @@ impl Enforcements {
         } else if let Some(key_time_out) = key_time_out {
             let hat = Self::find_auth_token(|hat: &AuthTokenEntry| match user_auth_type {
                 Some(auth_type) => hat.satisfies(&user_sids, auth_type),
-                None => false, // not reachable due to earlier check
+                None => false,
             })
             .ok_or(Error::Km(Ec::KEY_USER_NOT_AUTHENTICATED))
             .context(ks_err!(
@@ -691,8 +588,6 @@ impl Enforcements {
         DB.with(|db| db.borrow().find_auth_token_entry(p))
     }
 
-    /// Checks if the time now since epoch is greater than (or equal, if `is_given_time_inclusive`
-    /// is set) the given time (in milliseconds)
     fn is_given_time_passed(given_time: i64, is_given_time_inclusive: bool) -> bool {
         let duration_since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH);
 
@@ -708,24 +603,17 @@ impl Enforcements {
         }
     }
 
-    /// Configure an async task to be used for synchronizing device lock status.
     pub fn install_lock_state_task(&self, task: Arc<AsyncTask>) {
         info!("Setting lock state task");
         *self.lock_state_task.write().unwrap() = Some(task);
     }
 
-    /// Check if the device is locked for the given user. If there's no entry yet for the user,
-    /// we assume that the device is locked
     fn is_device_locked(&self, user: AndroidUserId) -> bool {
         if let Some(task) = &*self.lock_state_task.read().unwrap() {
-            // The presence of an `AsyncTask` indicates that lock status notifications are being
-            // handled via a queue. Before reporting the lock state, we want to ensure that any
-            // currently-pending notifications in the queue are processed.
             let _wp = wd::watch("Enforcements::is_device_locked sync with task");
             let (send, rcv) = channel::<()>();
 
             let queued = task.queue_hi_if_running(move |_shelf| {
-                // We notify the channel that this point in the queue has been reached.
                 if let Err(e) = send.send(()) {
                     warn!("failed to send queue sync notification: {e:?}");
                 }
@@ -733,8 +621,7 @@ impl Enforcements {
             if queued {
                 let _wp = wd::watch("Enforcements::is_device_locked sync with non-empty queue");
                 info!("added sync closure to notification queue");
-                // Block until the marker in the queue is reached, to ensure that lock status is
-                // up-to-date before returning an answer.
+
                 let _result = rcv.recv();
                 info!("sync closure in notification queue completed");
             }
@@ -744,7 +631,6 @@ impl Enforcements {
         !set.contains(&user)
     }
 
-    /// Sets the device locked status for the user. This method is called externally.
     pub fn set_device_locked(&self, user: AndroidUserId, device_locked_status: bool) {
         let mut set = self.device_unlocked_set.lock().unwrap();
         if device_locked_status {
@@ -754,23 +640,15 @@ impl Enforcements {
         }
     }
 
-    /// Add this auth token to the database.
-    /// Then present the auth token to the op auth map. If an operation is waiting for this
-    /// auth token this fulfills the request and removes the receiver from the map.
     pub fn add_auth_token(&self, hat: HardwareAuthToken) {
         DB.with(|db| db.borrow_mut().insert_auth_token(&hat));
         self.op_auth_map.add_auth_token(hat);
     }
 
-    /// This allows adding an entry to the op_auth_map, indexed by the operation challenge.
-    /// This is to be called by create_operation, once it has received the operation challenge
-    /// from keymint for an operation whose authorization decision is OpAuthRequired, as signalled
-    /// by the DeferredAuthState.
     fn register_op_auth_receiver(&self, challenge: Challenge, recv: TokenReceiver) {
         self.op_auth_map.add_receiver(challenge, recv);
     }
 
-    /// Given the set of key parameters and flags, check if super encryption is required.
     pub fn super_encryption_required(
         domain: &Domain,
         key_parameters: &[KeyParameter],
@@ -781,7 +659,7 @@ impl Enforcements {
                 return SuperEncryptionType::None;
             }
         }
-        // Each answer has a priority, numerically largest priority wins.
+
         struct Candidate {
             priority: u32,
             enc_type: SuperEncryptionType,
@@ -816,15 +694,6 @@ impl Enforcements {
         result.enc_type
     }
 
-    /// Finds a matching auth token along with a timestamp token.
-    /// This method looks through auth-tokens cached by keystore which satisfy the given
-    /// authentication information (i.e. `SecureUserId`).
-    /// The most recent matching auth token which has a `challenge` field which matches
-    /// the passed-in `challenge` parameter is returned.
-    /// In this case the `auth_token_max_age_millis` parameter is not used.
-    ///
-    /// Otherwise, the most recent matching auth token which is younger than
-    /// `auth_token_max_age_millis` is returned.
     pub fn get_auth_tokens(
         &self,
         challenge: Challenge,
@@ -833,7 +702,7 @@ impl Enforcements {
     ) -> Result<(HardwareAuthToken, TimeStampToken)> {
         let auth_type = HardwareAuthenticatorType::ANY;
         let sids: Vec<SecureUserId> = vec![sid];
-        // Filter the matching auth tokens by challenge
+
         let result = Self::find_auth_token(|hat: &AuthTokenEntry| {
             (challenge == hat.challenge()) && hat.satisfies(&sids, auth_type)
         });
@@ -841,7 +710,6 @@ impl Enforcements {
         let auth_token = if let Some(auth_token_entry) = result {
             auth_token_entry.take_auth_token()
         } else {
-            // Filter the matching auth tokens by age.
             if auth_token_max_age_millis != 0 {
                 let now_in_millis = BootTime::now();
                 let result = Self::find_auth_token(|auth_token_entry: &AuthTokenEntry| {
@@ -868,13 +736,12 @@ impl Enforcements {
                 );
             }
         };
-        // Wait and obtain the timestamp token from secure clock service.
+
         let tst =
             get_timestamp_token(challenge).context(ks_err!("Error in getting timestamp token."))?;
         Ok((auth_token, tst))
     }
 
-    /// Finds the most recent received time for an auth token that matches the given secure user id and authenticator
     pub fn get_last_auth_time(
         &self,
         sid: SecureUserId,
@@ -886,5 +753,3 @@ impl Enforcements {
         result.map(|auth_token_entry| auth_token_entry.time_received())
     }
 }
-
-// TODO: Add tests to enforcement module (b/175578618).

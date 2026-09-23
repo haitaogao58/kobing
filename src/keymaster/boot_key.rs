@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Offer keys based on the "boot level" for superencryption.
-
 use crate::android::hardware::security::keymint::{
     Algorithm::Algorithm, Digest::Digest, KeyParameter::KeyParameter as KmKeyParameter,
     KeyPurpose::KeyPurpose, SecurityLevel::SecurityLevel,
@@ -30,34 +28,22 @@ use log::{error, info};
 use std::collections::VecDeque;
 use std::sync::OnceLock;
 
-/// Boot level value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BootLevel(pub usize);
 
-/// Strategies used to prevent later boot stages from using the KM key that protects the level 0
-/// key
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum DenyLaterStrategy {
-    /// set MaxUsesPerBoot to 1. This is much less secure, since the attacker can replace the key
-    /// itself, and therefore create artifacts which appear to come from early boot.
     MaxUsesPerBoot,
-    /// set the EarlyBootOnly property. This property is only supported in KM from 4.1 on, but
-    /// it ensures that the level 0 key was genuinely created in early boot
+
     EarlyBootOnly,
 }
 
-/// Generally the L0 KM and strategy are chosen by probing KM versions in TEE and Strongbox.
-/// However, once a device is launched the KM and strategy must never change, even if the
-/// KM version in TEE or Strongbox is updated. Setting this property at build time using
-/// `PRODUCT_VENDOR_PROPERTIES` means that the strategy can be fixed no matter what versions
-/// of KM are present.
 const PROPERTY_NAME: &str = "ro.keystore.boot_level_key.strategy";
 static LEVEL_ZERO_SELECTION: OnceLock<(SecurityLevel, DenyLaterStrategy)> = OnceLock::new();
 
 fn lookup_level_zero_km_and_strategy() -> Result<Option<(SecurityLevel, DenyLaterStrategy)>> {
     let property_val: Result<String, rsproperties::Error> = rsproperties::get(PROPERTY_NAME);
 
-    // TODO: use feature(let_else) when that's stabilized.
     let property_val = if let Ok(p) = property_val {
         p
     } else {
@@ -129,9 +115,6 @@ fn get_level_zero_key_km_and_strategy() -> Result<(KeyMintDevice, DenyLaterStrat
     ))
 }
 
-/// This is not thread safe; caller must hold a lock before calling.
-/// In practice the caller is SuperKeyManager and the lock is the
-/// Mutex on its internal state.
 pub fn get_level_zero_key(db: &mut KeymasterDb) -> Result<ZVec> {
     let (km_dev, deny_later_strategy) =
         get_level_zero_key_km_and_strategy().context(err!("get preferred KM instance failed"))?;
@@ -202,22 +185,15 @@ pub fn get_level_zero_key(db: &mut KeymasterDb) -> Result<ZVec> {
             },
         )
         .context(err!("use_key_in_one_step failed"))?;
-    // TODO: this is rather unsatisfactory, we need a better way to handle
-    // sensitive binder returns.
+
     let level_zero_key =
         ZVec::try_from(level_zero_key).context(err!("conversion to ZVec failed"))?;
     Ok(level_zero_key)
 }
 
-/// Holds the key for the current boot level, and a cache of future keys generated as required.
-/// When the boot level advances, keys prior to the current boot level are securely dropped.
 pub struct BootLevelKeyCache {
-    /// Least boot level currently accessible, if any is.
     current: BootLevel,
-    /// Invariant: cache entry *i*, if it exists, holds the HKDF key for boot level
-    /// *i* + `current`. If the cache is non-empty it can be grown forwards, but it cannot be
-    /// grown backwards, so keys below `current` are inaccessible.
-    /// `cache.clear()` makes all keys inaccessible.
+
     cache: VecDeque<ZVec>,
 }
 
@@ -226,7 +202,6 @@ impl BootLevelKeyCache {
     const HKDF_AES: &'static [u8] = b"Generate AES-256-GCM key";
     const HKDF_KEY_SIZE: usize = 32;
 
-    /// Initialize the cache with the level zero key.
     pub fn new(level_zero_key: ZVec) -> Self {
         let mut cache: VecDeque<ZVec> = VecDeque::new();
         cache.push_back(level_zero_key);
@@ -236,40 +211,27 @@ impl BootLevelKeyCache {
         }
     }
 
-    /// Report whether the key for the given level can be inferred.
     pub fn level_accessible(&self, boot_level: BootLevel) -> bool {
-        // If the requested boot level is lower than the current boot level
-        // or if we have reached the end (`cache.empty()`) we can't retrieve
-        // the boot key.
         boot_level >= self.current && !self.cache.is_empty()
     }
 
-    /// Get the HKDF key for boot level `boot_level`. The key for level *i*+1
-    /// is calculated from the level *i* key using `hkdf_expand`.
     fn get_hkdf_key(&mut self, boot_level: BootLevel) -> Result<Option<&ZVec>> {
         if !self.level_accessible(boot_level) {
             return Ok(None);
         }
-        // `self.cache.len()` represents the first entry not in the cache,
-        // so `self.current + self.cache.len()` is the first boot level not in the cache.
+
         let first_not_cached = self.current.0 + self.cache.len();
 
-        // Grow the cache forwards until it contains the desired boot level.
         for _level in first_not_cached..=boot_level.0 {
-            // We check at the start that cache is non-empty and future iterations only push,
-            // so this must unwrap.
             let highest_key = self.cache.back().unwrap();
             let next_key = hkdf_expand(Self::HKDF_KEY_SIZE, highest_key, Self::HKDF_ADVANCE)
                 .context(err!("Advancing key one step"))?;
             self.cache.push_back(next_key);
         }
 
-        // If we reach this point, we should have a key at index boot_level - current.
         Ok(Some(self.cache.get(boot_level.0 - self.current.0).unwrap()))
     }
 
-    /// Drop keys prior to the given boot level, while retaining the ability to generate keys for
-    /// that level and later.
     pub fn advance_boot_level(&mut self, new_boot_level: BootLevel) -> Result<()> {
         if !self.level_accessible(new_boot_level) {
             error!(
@@ -280,24 +242,16 @@ impl BootLevelKeyCache {
             return Ok(());
         }
 
-        // We `get` the new boot level for the side effect of advancing the cache to a point
-        // where the new boot level is present.
         self.get_hkdf_key(new_boot_level)
             .context(err!("Advancing cache"))?;
 
-        // Then we split the queue at the index of the new boot level and discard the front,
-        // keeping only the keys with the current boot level or higher.
         self.cache = self.cache.split_off(new_boot_level.0 - self.current.0);
 
-        // The new cache has the new boot level at index 0, so we set `current` to
-        // `new_boot_level`.
         self.current = new_boot_level;
 
         Ok(())
     }
 
-    /// Drop all keys, effectively raising the current boot level to infinity; no keys can
-    /// be inferred from this point on.
     pub fn finish(&mut self) {
         self.cache.clear();
     }
@@ -315,7 +269,6 @@ impl BootLevelKeyCache {
             .context(err!("Calling hkdf_expand"))
     }
 
-    /// Return the AES-256-GCM key for the current boot level.
     pub fn aes_key(&mut self, boot_level: BootLevel) -> Result<Option<ZVec>> {
         self.expand_key(boot_level, AES_256_KEY_LENGTH, BootLevelKeyCache::HKDF_AES)
             .context(err!("expand_key failed"))
@@ -370,7 +323,6 @@ mod test {
     }
 }
 
-/// Boot-level keys produced by the accidental KDF used by older KOBING builds.
 pub(crate) struct LegacyBootLevelKeyCache {
     current: BootLevel,
     cache: VecDeque<ZVec>,

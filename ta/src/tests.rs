@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Tests
-
 use crate::{error_rsp, invalid_cbor_rsp_data, keys::SecureKeyWrapper, split_rsp};
 use der::{Decode, Encode};
 use kmr_common::ErrorKind;
@@ -28,7 +26,6 @@ use std::{vec, vec::Vec};
 
 #[test]
 fn test_invalid_data() {
-    // Cross-check that the hand-encoded invalid CBOR data matches an auto-encoded equivalent.
     let rsp = error_rsp(ErrorCode::UnknownError as i32);
     let rsp_data = rsp.into_vec().unwrap();
     assert_eq!(rsp_data, invalid_cbor_rsp_data());
@@ -37,9 +34,9 @@ fn test_invalid_data() {
 #[test]
 fn test_secure_key_wrapper() {
     let encoded_str = concat!(
-        "30820179", // SEQUENCE length 0x179 (SecureKeyWrapper) {
-        "020100",   // INTEGER length 1 value 0x00 (version)
-        "04820100", // OCTET STRING length 0x100 (encryptedTransportKey)
+        "30820179",
+        "020100",
+        "04820100",
         "aad93ed5924f283b4bb5526fbe7a1412",
         "f9d9749ec30db9062b29e574a8546f33",
         "c88732452f5b8e6a391ee76c39ed1712",
@@ -56,45 +53,32 @@ fn test_secure_key_wrapper() {
         "586775f423e519c2ea394caf48a28d0c",
         "8020f1dcf6b3a68ec246f615ae96dae9",
         "a079b1f6eb959033c1af5c125fd94168",
-        "040c", // OCTET STRING length 0x0c (initializationVector)
+        "040c",
         "6d9721d08589581ab49204a3",
-        "302e",   // SEQUENCE length 0x2e (KeyDescription) {
-        "020103", // INTEGER length 1 value 0x03 (keyFormat = RAW)
-        "3029",   // SEQUENCE length 0x29 (AuthorizationList) {
-        "a108",   // [1] context-specific constructed tag=1 length 0x08 { (purpose)
-        "3106",   // SET length 0x06
-        "020100", // INTEGER length 1 value 0x00 (Encrypt)
-        "020101", // INTEGER length 1 value 0x01 (Decrypt)
-        // } end SET
-        // } end [1]
-        "a203",   // [2] context-specific constructed tag=2 length 0x02 { (algorithm)
-        "020120", // INTEGER length 1 value 0x20 (AES)
-        // } end [2]
-        "a304",     // [3] context-specific constructed tag=3 length 0x04 { (keySize)
-        "02020100", // INTEGER length 2 value 0x100
-        // } end [3]
-        "a405",   // [4] context-specific constructed tag=4 length 0x05 { (blockMode
-        "3103",   // SET length 0x03 {
-        "020101", // INTEGER length 1 value 0x01 (ECB)
-        // } end SET
-        // } end [4]
-        "a605",   // [6] context-specific constructed tag=6 length 0x05 { (padding)
-        "3103",   // SET length 0x03 {
-        "020140", // INTEGER length 1 value 0x40 (PKCS7)
-        // } end SET
-        // } end [5]
-        "bf837702", // [503] context-specific constructed tag=503=0x1F7 length 0x02 {
-        // (noAuthRequired)
-        "0500", // NULL
-        // } end [503]
-        // } end SEQUENCE (AuthorizationList)
-        // } end SEQUENCE (KeyDescription)
-        "0420", // OCTET STRING length 0x20 (encryptedKey)
+        "302e",
+        "020103",
+        "3029",
+        "a108",
+        "3106",
+        "020100",
+        "020101",
+        "a203",
+        "020120",
+        "a304",
+        "02020100",
+        "a405",
+        "3103",
+        "020101",
+        "a605",
+        "3103",
+        "020140",
+        "bf837702",
+        "0500",
+        "0420",
         "a61c6e247e25b3e6e69aa78eb03c2d4a",
         "c20d1f99a9a024a76f35c8e2cab9b68d",
-        "0410", // OCTET STRING length 0x10 (tag)
+        "0410",
         "2560c70109ae67c030f00b98b512a670",
-        // } SEQUENCE (SecureKeyWrapper)
     );
     let encoded_bytes = hex::decode(encoded_str).unwrap();
     let secure_key_wrapper = SecureKeyWrapper::from_der(&encoded_bytes).unwrap();
@@ -124,9 +108,9 @@ fn test_secure_key_wrapper() {
 #[test]
 fn test_key_description_encode_decode() {
     let encoded_secure_key_wrapper = concat!(
-        "30820179", // SEQUENCE length 0x179 (SecureKeyWrapper) {
-        "020100",   // INTEGER length 1 value 0x00 (version)
-        "04820100", // OCTET STRING length 0x100 (encryptedTransportKey)
+        "30820179",
+        "020100",
+        "04820100",
         "aad93ed5924f283b4bb5526fbe7a1412",
         "f9d9749ec30db9062b29e574a8546f33",
         "c88732452f5b8e6a391ee76c39ed1712",
@@ -143,78 +127,36 @@ fn test_key_description_encode_decode() {
         "586775f423e519c2ea394caf48a28d0c",
         "8020f1dcf6b3a68ec246f615ae96dae9",
         "a079b1f6eb959033c1af5c125fd94168",
-        "040c", // OCTET STRING length 0x0c (initializationVector)
+        "040c",
         "6d9721d08589581ab49204a3",
-        "302e",   // SEQUENCE length 0x2e (KeyDescription) {
-        "020103", // INTEGER length 1 value 0x03 (keyFormat = RAW)
-        "3029",   // SEQUENCE length 0x29 (AuthorizationList) {
-        "a108",   // [1] context-specific constructed tag=1 length 0x08 { (purpose)
-        "3106",   // SET length 0x06
-        "020100", // INTEGER length 1 value 0x00 (Encrypt)
-        "020101", // INTEGER length 1 value 0x01 (Decrypt)
-        // } end SET
-        // } end [1]
-        "a203",   // [2] context-specific constructed tag=2 length 0x02 { (algorithm)
-        "020120", // INTEGER length 1 value 0x20 (AES)
-        // } end [2]
-        "a304",     // [3] context-specific constructed tag=3 length 0x04 { (keySize)
-        "02020100", // INTEGER length 2 value 0x100
-        // } end [3]
-        "a405",   // [4] context-specific constructed tag=4 length 0x05 { (blockMode
-        "3103",   // SET length 0x03 {
-        "020101", // INTEGER length 1 value 0x01 (ECB)
-        // } end SET
-        // } end [4]
-        "a605",   // [6] context-specific constructed tag=6 length 0x05 { (padding)
-        "3103",   // SET length 0x03 {
-        "020140", // INTEGER length 1 value 0x40 (PKCS7)
-        // } end SET
-        // } end [5]
-        "bf837702", // [503] context-specific constructed tag=503=0x1F7 length 0x02 {
-        // (noAuthRequired)
-        "0500", // NULL
-        // } end [503]
-        // } end SEQUENCE (AuthorizationList)
-        // } end SEQUENCE (KeyDescription)
-        "0420", // OCTET STRING length 0x20 (encryptedKey)
+        "302e",
+        "020103",
+        "3029",
+        "a108",
+        "3106",
+        "020100",
+        "020101",
+        "a203",
+        "020120",
+        "a304",
+        "02020100",
+        "a405",
+        "3103",
+        "020101",
+        "a605",
+        "3103",
+        "020140",
+        "bf837702",
+        "0500",
+        "0420",
         "a61c6e247e25b3e6e69aa78eb03c2d4a",
         "c20d1f99a9a024a76f35c8e2cab9b68d",
-        "0410", // OCTET STRING length 0x10 (tag)
+        "0410",
         "2560c70109ae67c030f00b98b512a670",
-        // } SEQUENCE (SecureKeyWrapper)
     );
     let encoded_key_description_want = concat!(
-        "302e",   // SEQUENCE length 0x2e (KeyDescription) {
-        "020103", // INTEGER length 1 value 0x03 (keyFormat = RAW)
-        "3029",   // SEQUENCE length 0x29 (AuthorizationList) {
-        "a108",   // [1] context-specific constructed tag=1 length 0x08 { (purpose)
-        "3106",   // SET length 0x06
-        "020100", // INTEGER length 1 value 0x00 (Encrypt)
-        "020101", // INTEGER length 1 value 0x01 (Decrypt)
-        // } end SET
-        // } end [1]
-        "a203",   // [2] context-specific constructed tag=2 length 0x02 { (algorithm)
-        "020120", // INTEGER length 1 value 0x20 (AES)
-        // } end [2]
-        "a304",     // [3] context-specific constructed tag=3 length 0x04 { (keySize)
-        "02020100", // INTEGER length 2 value 0x100
-        // } end [3]
-        "a405",   // [4] context-specific constructed tag=4 length 0x05 { (blockMode
-        "3103",   // SET length 0x03 {
-        "020101", // INTEGER length 1 value 0x01 (ECB)
-        // } end SET
-        // } end [4]
-        "a605",   // [6] context-specific constructed tag=6 length 0x05 { (padding)
-        "3103",   // SET length 0x03 {
-        "020140", // INTEGER length 1 value 0x40 (PKCS7)
-        // } end SET
-        // } end [5]
-        "bf837702", // [503] context-specific constructed tag=503=0x1F7 length 0x02 {
-        // (noAuthRequired)
-        "0500", // NULL
-                // } end [503]
-                // } end SEQUENCE (AuthorizationList)
-                // } end SEQUENCE (KeyDescription)
+        "302e", "020103", "3029", "a108", "3106", "020100", "020101", "a203", "020120", "a304",
+        "02020100", "a405", "3103", "020101", "a605", "3103", "020140", "bf837702", "0500",
     );
     let encoded_bytes = hex::decode(encoded_secure_key_wrapper).unwrap();
     let secure_key_wrapper = SecureKeyWrapper::from_der(&encoded_bytes).unwrap();
@@ -228,7 +170,6 @@ fn test_key_description_encode_decode() {
 
 #[test]
 fn test_split_rsp_invalid_input() {
-    // Check for invalid inputs
     let rsp = vec![];
     let result = split_rsp(&rsp, 5);
     assert!(result.is_err());
@@ -247,7 +188,6 @@ fn test_split_rsp_invalid_input() {
 
 #[test]
 fn test_split_rsp_smaller_input() {
-    // Test for rsp_data size < max_size
     let rsp = vec![0x82, 0x13, 0x82, 0x80, 0x80];
     let result = split_rsp(&rsp, 20).expect("result should not be error");
     assert_eq!(result.len(), 1);
@@ -264,7 +204,6 @@ fn test_split_rsp_smaller_input() {
 
 #[test]
 fn test_split_rsp_allowed_size_input() {
-    // Test for rsp_data size = allowed message length
     let rsp = vec![0x82, 0x13, 0x82, 0x80, 0x80];
     let result = split_rsp(&rsp, 6).expect("result should not be error");
     assert_eq!(result.len(), 1);
@@ -281,7 +220,6 @@ fn test_split_rsp_allowed_size_input() {
 
 #[test]
 fn test_split_rsp_max_size_input() {
-    // Test for rsp_data size = max_size
     let rsp = vec![0x82, 0x13, 0x82, 0x80, 0x80, 0x82];
     let result = split_rsp(&rsp, 6).expect("result should not be error");
     assert_eq!(result.len(), 2);
@@ -307,7 +245,6 @@ fn test_split_rsp_max_size_input() {
 
 #[test]
 fn test_split_rsp_larger_input_perfect_split() {
-    // Test for rsp_data size > max_size and it is a perfect split
     let rsp1 = vec![0x82, 0x13, 0x82, 0x80, 0x80];
     let rsp2 = vec![0x82, 0x14, 0x82, 0x80, 0x80];
     let rsp3 = vec![0x82, 0x15, 0x82, 0x80, 0x80];
@@ -351,7 +288,6 @@ fn test_split_rsp_larger_input_perfect_split() {
 
 #[test]
 fn test_split_rsp_larger_input_imperfect_split() {
-    // Test for rsp_data size > max_size and it is not a perfect split
     let rsp1 = vec![0x82, 0x00, 0x81, 0x82, 0x13];
     let rsp2 = vec![0x81, 0x83, 0x41, 0x01, 0x80];
     let rsp3 = vec![0x80];

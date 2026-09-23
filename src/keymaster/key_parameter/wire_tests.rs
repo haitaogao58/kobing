@@ -12,16 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The wire_tests module tests the 'convert_to_wire' and 'convert_from_wire' methods for
-//! KeyParameter, for the four different types used in KmKeyParameter, in addition to Invalid
-//! key parameter.
-//! i) bool
-//! ii) integer
-//! iii) longInteger
-//! iv) blob
-
 use super::*;
-/// unit tests for to conversions
+
 #[test]
 fn test_convert_to_wire_invalid() {
     let kp = KeyParameter::new(KeyParameterValue::Invalid, SecurityLevel::STRONGBOX);
@@ -87,7 +79,6 @@ fn test_convert_to_wire_blob() {
     );
 }
 
-/// unit tests for from conversion
 #[test]
 fn test_convert_from_wire_invalid() {
     let aidl_kp = KmKeyParameter {

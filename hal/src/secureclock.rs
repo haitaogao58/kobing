@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! SecureClock HAL device implementation.
-
 use super::{ChannelHalService, SerializedChannel};
 use crate::binder;
 use crate::hal::secureclock::{ISecureClock, TimeStampToken::TimeStampToken};
@@ -21,8 +19,6 @@ use crate::hal::Innto;
 use kmr_wire::*;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-/// `ISecureClock` implementation which converts all method invocations to serialized requests that
-/// are sent down the associated channel.
 pub struct Device<T: SerializedChannel + 'static> {
     channel: Arc<Mutex<T>>,
 }
@@ -30,11 +26,10 @@ pub struct Device<T: SerializedChannel + 'static> {
 impl<T: SerializedChannel + Send> binder::Interface for Device<T> {}
 
 impl<T: SerializedChannel + 'static> Device<T> {
-    /// Construct a new instance that uses the provided channel.
     pub fn new(channel: Arc<Mutex<T>>) -> Self {
         Self { channel }
     }
-    /// Create a new instance wrapped in a proxy object.
+
     pub fn new_as_binder(channel: Arc<Mutex<T>>) -> binder::Strong<dyn ISecureClock::ISecureClock> {
         ISecureClock::BnSecureClock::new_binder(
             Self::new(channel),

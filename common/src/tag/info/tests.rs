@@ -72,7 +72,7 @@ fn test_tag_bit_index_unique() {
             tag
         );
         seen.insert(info.bit_index);
-        // Bitwise tag tracking currently assumes they will all fit in `u64`
+
         assert!(info.bit_index < 64);
     }
 }
