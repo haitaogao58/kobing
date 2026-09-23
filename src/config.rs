@@ -891,7 +891,6 @@ pub enum TrustValueSource {
     Computed,
     Original,
     RandomExplicit,
-    RandomFallback,
 }
 
 impl std::fmt::Display for TrustValueSource {
@@ -902,7 +901,6 @@ impl std::fmt::Display for TrustValueSource {
             TrustValueSource::Computed => write!(f, "computed"),
             TrustValueSource::Original => write!(f, "original"),
             TrustValueSource::RandomExplicit => write!(f, "random_explicit"),
-            TrustValueSource::RandomFallback => write!(f, "random_fallback"),
         }
     }
 }

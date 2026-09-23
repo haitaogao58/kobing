@@ -88,8 +88,8 @@ pub fn bootstrap_vbmeta(config_file: &ConfigFile) -> Result<ResolvedTrust> {
         &config_file.trust.vb_key,
         config_file.trust.device_locked,
         &slot_suffix,
-    );
-    let vb_hash = resolve_vb_hash(&config_file.trust.vb_hash);
+    )?;
+    let vb_hash = resolve_vb_hash(&config_file.trust.vb_hash)?;
 
     sync_sysprops_if_needed(&vb_key, &vb_hash)?;
     if patches.write_security_patch {
@@ -135,8 +135,12 @@ pub(crate) fn write_runtime_security_patch(desired: &str, previous: Option<&str>
     )
 }
 
-fn resolve_vb_key(spec: &TrustValueSpec, device_locked: bool, slot_suffix: &str) -> ResolvedField {
-    match spec {
+fn resolve_vb_key(
+    spec: &TrustValueSpec,
+    device_locked: bool,
+    slot_suffix: &str,
+) -> Result<ResolvedField> {
+    Ok(match spec {
         TrustValueSpec::Hex(value) => ResolvedField {
             value: *value,
             source: TrustValueSource::ExplicitHex,
@@ -144,28 +148,29 @@ fn resolve_vb_key(spec: &TrustValueSpec, device_locked: bool, slot_suffix: &str)
         TrustValueSpec::Random => random_field(TrustValueSource::RandomExplicit),
         TrustValueSpec::Auto => {
             if let Some(value) = read_hex_property(VBMETA_KEY_PROP) {
-                return ResolvedField {
+                return Ok(ResolvedField {
                     value,
                     source: TrustValueSource::Property,
-                };
+                });
             }
-
             match compute_vbmeta_public_key_digest(slot_suffix, device_locked) {
                 Ok(value) => ResolvedField {
                     value,
                     source: TrustValueSource::Computed,
                 },
-                Err(error) => {
-                    log::warn!("computed vbmeta public key digest unavailable: {error:#}");
-                    random_field(TrustValueSource::RandomFallback)
-                }
+                // Auto mode must never silently substitute a fabricated value:
+                // a random fallback would poison the attestation/RKP trust root.
+                // Fail loudly instead, so the misconfiguration is surfaced.
+                Err(error) => bail!(
+                    "vbmeta public key digest unavailable: neither {VBMETA_KEY_PROP} \
+                     nor computed digest could be resolved: {error:#}"
+                ),
             }
         }
-    }
+    })
 }
-
-fn resolve_vb_hash(spec: &TrustValueSpec) -> ResolvedField {
-    match spec {
+fn resolve_vb_hash(spec: &TrustValueSpec) -> Result<ResolvedField> {
+    Ok(match spec {
         TrustValueSpec::Hex(value) => ResolvedField {
             value: *value,
             source: TrustValueSource::ExplicitHex,
@@ -173,26 +178,27 @@ fn resolve_vb_hash(spec: &TrustValueSpec) -> ResolvedField {
         TrustValueSpec::Random => random_field(TrustValueSource::RandomExplicit),
         TrustValueSpec::Auto => {
             if let Some(value) = read_hex_property(VBMETA_HASH_PROP) {
-                return ResolvedField {
+                return Ok(ResolvedField {
                     value,
                     source: TrustValueSource::Property,
-                };
+                });
             }
-
             match probe_original_verified_boot_hash_with_timeout(ORIGINAL_HASH_TIMEOUT) {
                 Ok(value) => ResolvedField {
                     value,
                     source: TrustValueSource::Original,
                 },
-                Err(error) => {
-                    log::warn!("original verified boot hash unavailable: {error:#}");
-                    random_field(TrustValueSource::RandomFallback)
-                }
+                // Auto mode must never silently substitute a fabricated value:
+                // a random fallback would poison the attestation/RKP trust root.
+                // Fail loudly instead, so the misconfiguration is surfaced.
+                Err(error) => bail!(
+                    "original verified boot hash unavailable: neither {VBMETA_HASH_PROP} \
+                     nor probed original hash could be resolved: {error:#}"
+                ),
             }
         }
-    }
+    })
 }
-
 fn random_field(source: TrustValueSource) -> ResolvedField {
     let mut rng = BoringRng {};
     let mut value = [0u8; 32];
@@ -456,7 +462,6 @@ impl TrustValueSource {
             TrustValueSource::Computed
                 | TrustValueSource::Original
                 | TrustValueSource::RandomExplicit
-                | TrustValueSource::RandomFallback
         )
     }
 }
@@ -1214,7 +1219,6 @@ ro.vendor.boot_security_patch.extra = ignored
     #[test]
     fn random_sources_still_require_sysprop_writeback() {
         assert!(TrustValueSource::RandomExplicit.needs_sysprop_write());
-        assert!(TrustValueSource::RandomFallback.needs_sysprop_write());
         assert!(!TrustValueSource::ExplicitHex.needs_sysprop_write());
         assert!(!TrustValueSource::Property.needs_sysprop_write());
     }
