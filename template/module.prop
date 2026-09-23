@@ -1,0 +1,7 @@
+id=ko_bing
+name=Ko Bing
+version=${versionName}
+versionCode=${versionCode}
+author=KoBing
+description=Custom keystore implementation for Android Keystore Spoofer
+updateJson=https://raw.githubusercontent.com/kobing/KoBing/changelog/update.json

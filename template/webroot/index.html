@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>KoBing · 控制台</title>
+<style>
+  :root{
+    --bg:#0e1116; --card:#171b22; --card2:#1d222b; --fg:#e8eaed;
+    --muted:#9aa4b2; --accent:#4c8dff; --ok:#38c172; --bad:#ff5c5c; --warn:#f0b429;
+    --border:#262c36; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang SC","Microsoft YaHei",sans-serif;}
+  body{padding:16px 14px 40px;max-width:720px;margin:0 auto;-webkit-text-size-adjust:100%}
+  h1{font-size:20px;margin:4px 0 2px;letter-spacing:.3px}
+  .sub{color:var(--muted);font-size:12.5px;margin-bottom:16px}
+  .mono{font-family:var(--mono)}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;
+    padding:14px 14px 12px;margin-bottom:12px}
+  .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px}
+  .hash{font-family:var(--mono);font-size:14px;line-height:1.5;word-break:break-all;
+    background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:12px;min-height:22px}
+  .hash.big{font-size:15px}
+  .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  button{flex:1 1 auto;min-width:110px;background:var(--accent);color:#fff;border:0;
+    border-radius:10px;padding:11px 14px;font-size:14px;font-weight:600;cursor:pointer}
+  button.ghost{background:var(--card2);color:var(--fg);border:1px solid var(--border)}
+  button:active{transform:translateY(1px)}
+  button:disabled{opacity:.5}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px dashed var(--border);font-size:13.5px}
+  .kv:last-child{border-bottom:0}
+  .kv .k{color:var(--muted);font-family:var(--mono);font-size:12.5px}
+  .kv .v{font-family:var(--mono);text-align:right;word-break:break-all}
+  input{flex:1;background:var(--card2);border:1px solid var(--border);color:var(--fg);
+    border-radius:10px;padding:11px;font-family:var(--mono);font-size:13px;width:100%}
+  .result{margin-top:10px;font-size:13.5px;font-weight:600;min-height:20px}
+  .ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--warn)} .muted{color:var(--muted)}
+  .status{font-size:12px;color:var(--muted);margin-top:6px;min-height:16px}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--muted);
+    border-top-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
+    background:#222a35;color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;
+    opacity:0;transition:opacity .2s;pointer-events:none;border:1px solid var(--border);z-index:9}
+  .toast.show{opacity:1}
+  .pkglist{max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:10px;
+    background:var(--card2);padding:4px}
+  .pkg{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:8px;font-size:13px;cursor:pointer}
+  .pkg:active{background:#232a35}
+  .pkg input{width:auto;flex:0 0 auto;margin:0;padding:0}
+  .pkgname{flex:1;word-break:break-all;font-size:12.5px}
+  .tag{font-size:10.5px;color:var(--warn);border:1px solid var(--warn);border-radius:6px;
+    padding:1px 5px;flex:0 0 auto}
+  .cnt{font-size:12px;color:var(--muted);margin-top:8px}
+  textarea{width:100%;background:var(--card2);border:1px solid var(--border);color:var(--fg);
+    border-radius:10px;padding:11px;font-family:var(--mono);font-size:12px;min-height:88px;resize:vertical}
+  input[type=file]{flex:1;padding:9px}
+  .filerow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+  <h1>KoBing · 控制台</h1>
+  <div class="sub">Boot Hash 覆核 · injector 应用列表 · keybox 注入</div>
+
+  <div class="card">
+    <div class="label">当前启动哈希 / ro.boot.vbmeta.digest</div>
+    <div id="digest" class="hash big">读取中…</div>
+    <div class="row">
+      <button id="refresh">刷新</button>
+      <button id="copy" class="ghost">复制</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">相关启动状态</div>
+    <div class="kv"><span class="k">ro.boot.verifiedbootstate</span><span class="v" id="vbs">—</span></div>
+    <div class="kv"><span class="k">ro.boot.vbmeta.device_state</span><span class="v" id="vds">—</span></div>
+    <div class="kv"><span class="k">ro.boot.flash.locked</span><span class="v" id="fl">—</span></div>
+    <div class="kv"><span class="k">ro.boot.vbmeta.hash_alg</span><span class="v" id="alg">—</span></div>
+  </div>
+
+  <div class="card">
+    <div class="label">对比校验</div>
+    <div class="sub" style="margin:0 0 8px">粘贴另一处得到的哈希（例如验签结果里报告的），检查是否一致</div>
+    <input id="expect" placeholder="粘贴待对比的哈希值…" autocomplete="off" spellcheck="false">
+    <div class="row"><button id="compare" class="ghost">对比</button></div>
+    <div id="cmp" class="result muted">—</div>
+  </div>
+
+  <div class="card">
+    <div class="label">覆盖启动哈希 / config.toml · [trust].vb_hash</div>
+    <div class="kv"><span class="k">当前配置</span><span class="v" id="cfg">—</span></div>
+    <div class="sub" style="margin:10px 0 8px">random：证书报告值与系统属性统一为随机值；固定 hex：只改 attestation 报告值。应用后自动重启 keymint 生效。</div>
+    <div class="row">
+      <button id="setRandom">设为 random</button>
+      <button id="setAuto" class="ghost">恢复 auto</button>
+    </div>
+    <input id="hex" style="margin-top:10px" placeholder="或固定 64 位 hex（仅改报告值）" autocomplete="off" spellcheck="false">
+    <div class="row"><button id="setHex" class="ghost">应用固定值</button></div>
+    <div id="cfgResult" class="result muted">—</div>
+  </div>
+
+  <div class="card">
+    <div class="label">应用列表 / injector.toml · scoop</div>
+    <div class="sub" style="margin:0 0 8px">勾选需要注入的目标应用，写入 <span class="mono">injector.toml</span> 的 <span class="mono">scoop</span> 数组。合法变更由 watcher 自动生效，<b>无需重启</b>。</div>
+    <input id="pkgFilter" placeholder="过滤包名…" autocomplete="off" spellcheck="false" style="margin-bottom:8px">
+    <div id="pkgList" class="pkglist"><div class="muted" style="padding:8px">尚未加载</div></div>
+    <div id="scoopCount" class="cnt">—</div>
+    <div class="row">
+      <button id="pkgRefresh" class="ghost">刷新列表</button>
+      <button id="pkgAll" class="ghost">全选</button>
+      <button id="pkgInvert" class="ghost">反选</button>
+      <button id="pkgClear" class="ghost">清空</button>
+    </div>
+    <div class="row"><button id="scoopApply">写入 scoop</button></div>
+    <div id="scoopResult" class="result muted">—</div>
+  </div>
+
+  <div class="card">
+    <div class="label">添加密钥 / keybox.xml</div>
+    <div class="sub" style="margin:0 0 8px">选择要注入的 <span class="mono">keybox.xml</span>，将写入 <span class="mono">/data/misc/keystore/ko_bing/keybox.xml</span>（临时名 + 一次性 rename，权限 0600 / keystore）。若文件选择不可用，可直接粘贴 XML 内容。</div>
+    <div class="filerow">
+      <input type="file" id="kbFile" accept=".xml,text/xml,application/xml">
+    </div>
+    <div id="kbName" class="cnt">未选择文件</div>
+    <div class="sub" style="margin:10px 0 6px">或粘贴 keybox 内容（优先使用）：</div>
+    <textarea id="kbText" placeholder="&lt;?xml version="1.0"?&gt; ... &lt;AndroidAttestation&gt; ..." spellcheck="false"></textarea>
+    <div class="row"><button id="kbApply">写入 keybox.xml</button></div>
+    <div id="kbResult" class="result muted">—</div>
+  </div>
+
+  <div id="status" class="status"></div>
+  <div id="toast" class="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+  var statusEl = document.getElementById('status');
+  var digestEl = document.getElementById('digest');
+
+  /* ===== WebUI 桥接层 =====
+     对齐 KernelSU 官方 npm 包 kernelsu@3.x 的调用协议：
+        ksu.exec(command, JSON.stringify(options), callbackFuncName)
+        // 管理器执行完后回调：window[callbackFuncName](errno, stdout, stderr)
+     这里对 ksu / kernelsu / jsBridge / Android 四个候选做自适应探测，
+     用一条探针命令挑出真正能返回输出的那个。 */
+  var BRIDGE = null; // { name, call(cmd, opts) -> Promise<{errno,stdout,stderr}> }
+
+  function normResult(r){
+    if (r == null) return { errno:-1, stdout:'', stderr:'null/undefined' };
+    if (typeof r === 'string'){
+      var t = r.replace(/^\s+/, '');
+      if (t.charAt(0) === '{' || t.charAt(0) === '['){ try { return normResult(JSON.parse(r)); } catch(e){} }
+      return { errno:0, stdout:r, stderr:'' };
+    }
+    return {
+      errno: (typeof r.errno === 'number') ? r.errno : ((typeof r.code === 'number') ? r.code : 0),
+      stdout: (r.stdout != null) ? String(r.stdout) : '',
+      stderr: (r.stderr != null) ? String(r.stderr) : ''
+    };
+  }
+
+  function makeCaller(obj){
+    return function execCall(cmd, opts){
+      return new Promise(function(resolve){
+        var cb = '__kobing_cb_' + Date.now().toString(36) + '_' + Math.floor(Math.random()*1e9).toString(36);
+        var settled = false;
+        function fin(r){
+          if (settled) return; settled = true;
+          try { delete window[cb]; } catch(e){ try { window[cb] = undefined; } catch(_){} }
+          resolve(r);
+        }
+        window[cb] = function(errno, stdout, stderr){
+          fin({ errno: (typeof errno === 'number') ? errno : 0,
+                stdout: (stdout == null) ? '' : String(stdout),
+                stderr: (stderr == null) ? '' : String(stderr) });
+        };
+        var ret;
+        try { ret = obj.exec(cmd, JSON.stringify(opts || {}), cb); }
+        catch(e){ fin({ errno:-1, stdout:'', stderr:'exec throw: ' + e }); return; }
+        if (ret && typeof ret.then === 'function'){
+          ret.then(function(r){ fin(normResult(r)); },
+                   function(e){ fin({ errno:-1, stdout:'', stderr:'exec reject: ' + e }); });
+          return;
+        }
+        if (ret != null){ fin(normResult(ret)); return; }
+        setTimeout(function(){ fin({ errno:-3, stdout:'', stderr:'no callback (timeout)' }); }, 5000);
+      });
+    };
+  }
+
+  function bridgeCandidates(){
+    var out = [];
+    function add(n, o){ if (o && typeof o.exec === 'function') out.push([n, o]); }
+    add('ksu', window.ksu);
+    add('kernelsu', window.kernelsu);
+    add('jsBridge', window.jsBridge);
+    add('Android', window.Android);
+    return out;
+  }
+
+  function probe(obj, ms){
+    var caller = makeCaller(obj);
+    return new Promise(function(resolve){
+      var done = false;
+      var t = setTimeout(function(){ if (!done){ done = true; resolve({ ok:false }); } }, ms);
+      caller('echo __KOBING_OK__').then(function(r){
+        if (done) return; done = true; clearTimeout(t);
+        resolve({ ok: (r.stdout || '').indexOf('__KOBING_OK__') >= 0, caller: caller });
+      });
+    });
+  }
+
+  function initBridge(){
+    var cands = bridgeCandidates();
+    if (!cands.length) return Promise.resolve(null);
+    var i = 0;
+    function next(){
+      if (i >= cands.length) return Promise.resolve(null);
+      var c = cands[i++];
+      return probe(c[1], 2500).then(function(res){
+        if (res.ok){ BRIDGE = { name: c[0], call: res.caller }; return BRIDGE; }
+        return next();
+      });
+    }
+    return next();
+  }
+
+  function setStatus(html){ statusEl.innerHTML = html || ''; }
+
+  function toast(msg){
+    var t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    setTimeout(function(){ t.classList.remove('show'); }, 1400);
+  }
+
+  function execRaw(cmd){
+    if (!BRIDGE) return Promise.reject(new Error('NO_BRIDGE'));
+    return BRIDGE.call(cmd, {}).then(function(r){ return normResult(r); });
+  }
+
+  function getProp(name){
+    return execRaw('getprop ' + name).then(function(r){ return r.stdout.trim(); });
+  }
+
+  function shQuote(s){ return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+
+  /* UTF-8 安全 base64（供写文件用，避免中文/特殊字符损坏） */
+  function b64utf8(str){
+    if (typeof TextEncoder !== 'undefined'){
+      var arr = new TextEncoder().encode(str), s = '';
+      for (var i=0;i<arr.length;i++) s += String.fromCharCode(arr[i]);
+      return btoa(s);
+    }
+    return btoa(unescape(encodeURIComponent(str)));
+  }
+
+  /* ===== 启动哈希 ===== */
+  function loadAll(){
+    if (!BRIDGE){
+      digestEl.textContent = '无法读取';
+      setStatus('<span class="bad">未检测到 KernelSU WebUI 接口。</span> 请在 KernelSU 管理器里通过模块卡片的 “WebUI” 按钮打开本页面。');
+      return;
+    }
+    setStatus('<span class="spin"></span> 读取中…');
+    Promise.all([
+      getProp('ro.boot.vbmeta.digest'),
+      getProp('ro.boot.verifiedbootstate'),
+      getProp('ro.boot.vbmeta.device_state'),
+      getProp('ro.boot.flash.locked'),
+      getProp('ro.boot.vbmeta.hash_alg')
+    ]).then(function(v){
+      digestEl.textContent = v[0] || '(空)';
+      document.getElementById('vbs').textContent = v[1] || '(空)';
+      document.getElementById('vds').textContent = v[2] || '(空)';
+      document.getElementById('fl').textContent  = v[3] || '(空)';
+      document.getElementById('alg').textContent = v[4] || '(空)';
+      setStatus('已读取 · ' + new Date().toLocaleTimeString());
+      runCompare();
+    }).catch(function(e){
+      setStatus('<span class="bad">读取失败：' + (e && e.message ? e.message : e) + '</span>');
+    });
+  }
+
+  function runCompare(){
+    var want = (document.getElementById('expect').value || '').trim().toLowerCase().replace(/^0x/,'');
+    var got  = (digestEl.textContent || '').trim().toLowerCase();
+    var box  = document.getElementById('cmp');
+    if (!want){ box.className = 'result muted'; box.textContent = '—'; return; }
+    if (want === got){ box.className = 'result ok'; box.textContent = '✓ 一致'; }
+    else { box.className = 'result bad'; box.textContent = '✗ 不一致（当前长度 ' + got.length + '，待比长度 ' + want.length + '）'; }
+  }
+
+  document.getElementById('refresh').addEventListener('click', loadAll);
+  document.getElementById('copy').addEventListener('click', function(){
+    var txt = (digestEl.textContent || '').trim();
+    if (!txt || txt === '读取中…' || txt === '无法读取') return;
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(function(){ toast('已复制'); }, function(){ fallbackCopy(txt); });
+    } else { fallbackCopy(txt); }
+  });
+  document.getElementById('compare').addEventListener('click', runCompare);
+  document.getElementById('expect').addEventListener('input', runCompare);
+
+  function fallbackCopy(txt){
+    var ta = document.createElement('textarea');
+    ta.value = txt; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast('已复制'); } catch(e){ toast('复制失败'); }
+    document.body.removeChild(ta);
+  }
+
+  /* ===== 覆盖启动哈希（写 config.toml + 重启 keymint） ===== */
+  var CONFIG_PATH = '/data/misc/keystore/ko_bing/config.toml';
+  var RESTART_FILE = '/data/adb/ko_bing/restart.keymint';
+
+  function loadCfg(){
+    var el = document.getElementById('cfg');
+    return execRaw('grep "^vb_hash" ' + CONFIG_PATH).then(function(r){
+      var line = (r.stdout || '').trim();
+      el.textContent = line || '(未找到 vb_hash 字段)';
+      return line;
+    }, function(){ el.textContent = '读取失败'; });
+  }
+
+  function applyVbHash(mode, label){
+    var el = document.getElementById('cfgResult');
+    if (!BRIDGE){ el.className = 'result bad'; el.textContent = '未检测到 KernelSU 接口'; return; }
+    el.className = 'result muted';
+    el.innerHTML = '<span class="spin"></span> 写入配置…';
+    var sedExpr = 's/^vb_hash = .*/vb_hash = "' + mode + '"/';
+    var cmd = 'f=' + shQuote(CONFIG_PATH) + '; ' +
+      '[ -f "$f" ] || { echo __NO_CONFIG__; exit 2; }; ' +
+      'grep -q "^vb_hash" "$f" || { echo __NO_FIELD__; exit 3; }; ' +
+      'cp -a "$f" "$f.bak"; ' +
+      'sed ' + shQuote(sedExpr) + ' "$f" > "$f.tmp" && cat "$f.tmp" > "$f" && rm -f "$f.tmp"; ' +
+      'grep "^vb_hash" "$f"; ' +
+      'touch ' + shQuote(RESTART_FILE);
+    execRaw(cmd).then(function(r){
+      var out = r.stdout || '';
+      if (out.indexOf('__NO_CONFIG__') >= 0) throw new Error('找不到 config.toml');
+      if (out.indexOf('__NO_FIELD__') >= 0) throw new Error('config.toml 里没有 vb_hash 字段');
+      toast(label + ' 已写入，重启 keymint…');
+      el.innerHTML = '<span class="spin"></span> keymint 重启中（约 3 秒）…';
+      return new Promise(function(res){ setTimeout(res, 3500); });
+    }).then(function(){
+      return Promise.all([loadCfg(), getProp('ro.boot.vbmeta.digest')]);
+    }).then(function(v){
+      var digest = (v[1] || '').trim();
+      digestEl.textContent = digest || '(空)';
+      el.className = 'result ok';
+      el.textContent = '✓ 已应用 ' + label;
+      setStatus('已写入并重启 keymint · ' + new Date().toLocaleTimeString());
+      runCompare();
+    }).catch(function(e){
+      el.className = 'result bad';
+      el.textContent = '✗ 失败：' + (e && e.message ? e.message : e);
+    });
+  }
+
+  document.getElementById('setRandom').addEventListener('click', function(){
+    if (confirm('把 vb_hash 设为 random？（报告值与 ro.boot.vbmeta.digest 都会变成同一随机值）')) applyVbHash('random', 'random');
+  });
+  document.getElementById('setAuto').addEventListener('click', function(){
+    if (confirm('恢复 vb_hash = auto（读取真实值）？')) applyVbHash('auto', 'auto');
+  });
+  document.getElementById('setHex').addEventListener('click', function(){
+    var box = document.getElementById('cfgResult');
+    var hex = (document.getElementById('hex').value || '').trim().toLowerCase().replace(/^0x/, '');
+    if (!/^[0-9a-f]{64}$/.test(hex)){ box.className = 'result bad'; box.textContent = '✗ 需要正好 64 位十六进制字符'; return; }
+    if (confirm('把 vb_hash 固定为 ' + hex + '？（只改 attestation 报告值，系统属性不变）')) applyVbHash(hex, '固定值');
+  });
+
+  /* ===== 应用列表 / injector.toml · scoop ===== */
+  var INJECTOR_PATH = '/data/misc/keystore/ko_bing/injector.toml';
+  var installedSet = {};
+  var allPkgs = [];
+  var pkgRowEls = []; // {name, row, cb}
+  var injectorText = '';
+
+  function parseScoop(text){
+    var m = String(text || '').match(/scoop[ \t]*=[ \t]*\[([\s\S]*?)\]/);
+    if (!m) return [];
+    var out = [], re = /"([^"]+)"/g, mm;
+    while ((mm = re.exec(m[1])) !== null) out.push(mm[1]);
+    return out;
+  }
+
+  function buildScoopBlock(pkgs){
+    var lines = ['scoop = ['];
+    for (var i=0;i<pkgs.length;i++) lines.push('    "' + pkgs[i] + '",');
+    lines.push(']');
+    return lines.join('\n');
+  }
+
+  function replaceScoop(text, block){
+    var re = /scoop[ \t]*=[ \t]*\[[\s\S]*?\]/;
+    if (re.test(text)) return text.replace(re, block);
+    var vre = /^version[ \t]*=[ \t]*\d+[ \t]*$/m;
+    if (vre.test(text)) return text.replace(vre, function(m){ return m + '\n\n' + block; });
+    return block + '\n\n' + text;
+  }
+
+  function updateScoopCount(){
+    var n = 0, vis = 0, total = pkgRowEls.length;
+    for (var i=0;i<pkgRowEls.length;i++){
+      if (pkgRowEls[i].cb.checked) n++;
+      if (pkgRowEls[i].row.style.display !== 'none') vis++;
+    }
+    document.getElementById('scoopCount').textContent = '已选 ' + n + ' / ' + total + ' 个（当前显示 ' + vis + '）';
+  }
+
+  function applyFilter(){
+    var f = (document.getElementById('pkgFilter').value || '').trim().toLowerCase();
+    for (var i=0;i<pkgRowEls.length;i++){
+      var name = pkgRowEls[i].name.toLowerCase();
+      pkgRowEls[i].row.style.display = (!f || name.indexOf(f) >= 0) ? '' : 'none';
+    }
+    updateScoopCount();
+  }
+
+  function eachVisible(fn){
+    for (var i=0;i<pkgRowEls.length;i++){
+      if (pkgRowEls[i].row.style.display !== 'none') fn(pkgRowEls[i]);
+    }
+  }
+
+  function renderPkgs(){
+    var box = document.getElementById('pkgList');
+    box.innerHTML = '';
+    pkgRowEls = [];
+    if (!allPkgs.length){ box.innerHTML = '<div class="muted" style="padding:8px">没有可显示的应用</div>'; return; }
+    var cfgSet = {};
+    var cfgList = parseScoop(injectorText);
+    for (var j=0;j<cfgList.length;j++) cfgSet[cfgList[j]] = true;
+
+    for (var i=0;i<allPkgs.length;i++){
+      var name = allPkgs[i];
+      var row = document.createElement('label');
+      row.className = 'pkg';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = name;
+      cb.checked = !!cfgSet[name];
+      cb.addEventListener('change', updateScoopCount);
+      var sp = document.createElement('span');
+      sp.className = 'pkgname mono';
+      sp.textContent = name;
+      row.appendChild(cb); row.appendChild(sp);
+      if (!installedSet[name]){
+        var tag = document.createElement('span');
+        tag.className = 'tag'; tag.textContent = '未安装';
+        row.appendChild(tag);
+      }
+      box.appendChild(row);
+      pkgRowEls.push({ name:name, row:row, cb:cb });
+    }
+    applyFilter();
+  }
+
+  function loadPackages(){
+    if (!BRIDGE){ toast('无 WebUI 接口'); return; }
+    var box = document.getElementById('pkgList');
+    box.innerHTML = '<div class="muted" style="padding:8px"><span class="spin"></span> 读取应用列表…</div>';
+    var instP = execRaw('pm list packages').then(function(r){ return r.stdout || ''; }, function(){ return ''; });
+    var cfgP  = execRaw('cat ' + shQuote(INJECTOR_PATH)).then(function(r){ return r.stdout || ''; }, function(){ return ''; });
+    Promise.all([instP, cfgP]).then(function(v){
+      installedSet = {};
+      var lines = (v[0] || '').split('\n');
+      for (var i=0;i<lines.length;i++){
+        var ln = lines[i].trim();
+        if (!ln) continue;
+        var idx = ln.indexOf(':');
+        var name = idx >= 0 ? ln.slice(idx+1).trim() : ln;
+        if (name && name.indexOf('package') !== 0) installedSet[name] = true;
+      }
+      injectorText = v[1] || '';
+      var cfgList = parseScoop(injectorText);
+      var map = {};
+      for (var k in installedSet) map[k] = true;
+      for (var j=0;j<cfgList.length;j++) map[cfgList[j]] = true;
+      allPkgs = Object.keys(map).sort();
+      renderPkgs();
+      var sres = document.getElementById('scoopResult');
+      sres.className = 'result muted';
+      sres.textContent = '已加载 ' + allPkgs.length + ' 个包名';
+    }).catch(function(e){
+      box.innerHTML = '<div class="bad" style="padding:8px">加载失败：' + (e && e.message ? e.message : e) + '</div>';
+    });
+  }
+
+  function applyScoop(){
+    var el = document.getElementById('scoopResult');
+    if (!BRIDGE){ el.className = 'result bad'; el.textContent = '未检测到 KernelSU 接口'; return; }
+    var pkgs = [];
+    for (var i=0;i<pkgRowEls.length;i++) if (pkgRowEls[i].cb.checked) pkgs.push(pkgRowEls[i].name);
+    pkgs.sort();
+    if (!pkgs.length && !confirm('没有勾选任何包，确定把 scoop 写入为空数组？')) return;
+    el.className = 'result muted';
+    el.innerHTML = '<span class="spin"></span> 写入 injector.toml…';
+
+    execRaw('cat ' + shQuote(INJECTOR_PATH)).then(function(r){
+      var text = r.stdout || '';
+      if (!text && r.errno !== 0) throw new Error('读取 injector.toml 失败：' + (r.stderr || '').slice(0,120));
+      if (!text) text = 'version = 1\n\n';
+      var block = buildScoopBlock(pkgs);
+      var next = replaceScoop(text, block);
+      var b64 = b64utf8(next);
+      var cmd = 'f=' + shQuote(INJECTOR_PATH) + '; ' +
+        '[ -f "$f" ] || { echo __NO_FILE__; exit 2; }; ' +
+        'printf %s ' + shQuote(b64) + ' | base64 -d > "$f.tmp" || { echo __DECODE_FAIL__; exit 3; }; ' +
+        '[ -s "$f.tmp" ] || { echo __EMPTY__; exit 4; }; ' +
+        'cat "$f.tmp" > "$f" && rm -f "$f.tmp"; ' +
+        'chmod 0600 "$f"; chown 1017:1017 "$f"; ' +
+        'echo __OK__; wc -c < "$f"';
+      return execRaw(cmd);
+    }).then(function(r){
+      var out = r.stdout || '';
+      if (out.indexOf('__NO_FILE__') >= 0) throw new Error('找不到 injector.toml');
+      if (out.indexOf('__DECODE_FAIL__') >= 0) throw new Error('内容 base64 解码失败');
+      if (out.indexOf('__EMPTY__') >= 0) throw new Error('写入内容为空');
+      if (out.indexOf('__OK__') < 0) throw new Error('写入未确认：' + ((r.stderr || out) || '').slice(0,140));
+      el.className = 'result ok';
+      el.textContent = '✓ 已写入 ' + pkgs.length + ' 个包名（watcher 自动生效，无需重启）';
+      toast('scoop 已更新');
+      setStatus('injector.toml 已更新 · ' + new Date().toLocaleTimeString());
+    }).catch(function(e){
+      el.className = 'result bad';
+      el.textContent = '✗ 失败：' + (e && e.message ? e.message : e);
+    });
+  }
+
+  document.getElementById('pkgRefresh').addEventListener('click', loadPackages);
+  document.getElementById('pkgFilter').addEventListener('input', applyFilter);
+  document.getElementById('pkgAll').addEventListener('click', function(){ eachVisible(function(r){ r.cb.checked = true; }); updateScoopCount(); });
+  document.getElementById('pkgInvert').addEventListener('click', function(){ eachVisible(function(r){ r.cb.checked = !r.cb.checked; }); updateScoopCount(); });
+  document.getElementById('pkgClear').addEventListener('click', function(){ for (var i=0;i<pkgRowEls.length;i++) pkgRowEls[i].cb.checked = false; updateScoopCount(); });
+  document.getElementById('scoopApply').addEventListener('click', applyScoop);
+
+  /* ===== 添加密钥 / keybox.xml ===== */
+  var KB_DIR = '/data/misc/keystore/ko_bing';
+  var KEYBOX_PATH = KB_DIR + '/keybox.xml';
+  var kbContent = '';
+
+  document.getElementById('kbFile').addEventListener('change', function(ev){
+    var f = ev.target.files && ev.target.files[0];
+    var nameEl = document.getElementById('kbName');
+    if (!f){ kbContent = ''; nameEl.textContent = '未选择文件'; return; }
+    nameEl.textContent = '已选择：' + f.name + ' · ' + f.size + ' B（读取中…）';
+    try {
+      var rd = new FileReader();
+      rd.onload = function(){ kbContent = String(rd.result || ''); nameEl.textContent = '已选择：' + f.name + ' · ' + f.size + ' B'; toast('keybox 已读取'); };
+      rd.onerror = function(){ kbContent = ''; nameEl.textContent = '读取失败：' + f.name + '（请改用下方粘贴）'; };
+      rd.readAsText(f);
+    } catch(e){
+      kbContent = '';
+      nameEl.textContent = '文件选择不可用（' + (e && e.message ? e.message : e) + '），请改用下方粘贴';
+    }
+  });
+
+  function applyKeybox(){
+    var el = document.getElementById('kbResult');
+    if (!BRIDGE){ el.className = 'result bad'; el.textContent = '未检测到 KernelSU 接口'; return; }
+    var pasted = (document.getElementById('kbText').value || '').trim();
+    var content = pasted || (kbContent || '').trim();
+    if (!content){ el.className = 'result bad'; el.textContent = '✗ 请先选择 keybox.xml 或粘贴其内容'; return; }
+    if (content.indexOf('<AndroidAttestation') < 0 && content.indexOf('<Keybox') < 0 && content.indexOf('<androidKeyAttestation') < 0){
+      if (!confirm('内容里没检测到 keybox 根标签，仍要写入？')) return;
+    }
+    el.className = 'result muted';
+    el.innerHTML = '<span class="spin"></span> 写入 keybox.xml…';
+    var b64 = b64utf8(content);
+    var cmd = 'd=' + shQuote(KB_DIR) + '; f=' + shQuote(KEYBOX_PATH) + '; ' +
+      '[ -d "$d" ] || { echo __NO_DIR__; exit 2; }; ' +
+      'printf %s ' + shQuote(b64) + ' | base64 -d > "$d/keybox.xml.tmp" || { echo __DECODE_FAIL__; exit 3; }; ' +
+      '[ -s "$d/keybox.xml.tmp" ] || { echo __EMPTY__; exit 4; }; ' +
+      'chmod 0600 "$d/keybox.xml.tmp"; chown 1017:1017 "$d/keybox.xml.tmp"; ' +
+      'mv -f "$d/keybox.xml.tmp" "$f"; ' +
+      'chmod 0600 "$f"; chown 1017:1017 "$f"; ' +
+      'echo __OK__; wc -c < "$f"';
+    execRaw(cmd).then(function(r){
+      var out = r.stdout || '';
+      if (out.indexOf('__NO_DIR__') >= 0) throw new Error('找不到 ko_bing 数据目录');
+      if (out.indexOf('__DECODE_FAIL__') >= 0) throw new Error('内容 base64 解码失败');
+      if (out.indexOf('__EMPTY__') >= 0) throw new Error('写入内容为空');
+      if (out.indexOf('__OK__') < 0) throw new Error('写入未确认：' + ((r.stderr || out) || '').slice(0,140));
+      var m = out.match(/(\d+)\s*$/);
+      el.className = 'result ok';
+      el.textContent = '✓ 已写入 keybox.xml（' + (m ? m[1] : '?') + ' B），KOBING 会自动重载';
+      toast('keybox.xml 已更新');
+    }).catch(function(e){
+      el.className = 'result bad';
+      el.textContent = '✗ 失败：' + (e && e.message ? e.message : e);
+    });
+  }
+
+  document.getElementById('kbApply').addEventListener('click', applyKeybox);
+
+  /* ===== 启动：先探测 WebUI 桥接，再加载数据 ===== */
+  setStatus('<span class="spin"></span> 检测 WebUI 接口…');
+  initBridge().then(function(b){
+    if (b){
+      setStatus('接口 <span class="mono">' + b.name + '</span> 已就绪');
+      loadAll();
+      loadCfg();
+      loadPackages();
+    } else {
+      digestEl.textContent = '无法读取';
+      document.getElementById('cfg').textContent = '无法读取';
+      setStatus('<span class="bad">未检测到可用的 KernelSU WebUI 接口。</span> 请在 KernelSU 管理器里通过模块卡片的 “WebUI” 按钮打开本页面。');
+    }
+  });
+})();
+</script>
+</body>
+</html>
