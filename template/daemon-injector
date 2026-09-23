@@ -71,26 +71,21 @@ is_injected() {
   maps=/proc/$pid/maps
   [ -r "$maps" ] || return 1
 
-  if [ -r "$PAYLOAD_STATE_FILE" ]; then
-    if toybox awk -v want_pid="$pid" '
-      FNR == NR {
-        if ($1 == want_pid && $2 != "") {
-          ident = $2
-        }
-        next
-      }
-      ident != "" && index($0, ident) {
-        found = 1
-        exit
-      }
-      END {
-        exit found ? 0 : 1
-      }
-    ' "$PAYLOAD_STATE_FILE" "$maps" >/dev/null 2>&1; then
-      return 0
-    fi
-  fi
+  # The payload image is dlopen'd into the target through a file descriptor, so
+  # the linker records EITHER the generated identifier (lib<hex>.so) OR the real
+  # injector path in the target's maps. Neither string alone proves the payload
+  # entry point actually ran: a dlopen that mapped the image but whose entry then
+  # failed leaves the path in maps while KoBing is NOT active. Therefore only
+  # trust the mapping when this exact pid is recorded in the payload state file,
+  # which is written by the injector only after entry returned successfully.
+  # NOTE: this device's toybox has no awk applet ("toybox awk" fails with
+  # rc=127), so use the standalone /system/bin/awk explicitly.
+  recorded_ident=$(awk -v want_pid="$pid" \
+    '$1 == want_pid && $2 != "" { print $2; exit }' \
+    "$PAYLOAD_STATE_FILE" 2>/dev/null)
+  [ -n "$recorded_ident" ] || return 1
 
+  grep -F "$recorded_ident" "$maps" >/dev/null 2>&1 && return 0
   grep -F "$TARGET_INJECTOR" "$maps" >/dev/null 2>&1 && return 0
   return 1
 }
