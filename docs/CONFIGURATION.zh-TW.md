@@ -2,95 +2,96 @@
 
 [English](CONFIGURATION.md) | [简体中文](CONFIGURATION.zh-CN.md) | **繁體中文**
 
-KoBing（KOBING）使用三個生效的配置文件：
+KoBing（KOBING）一共用三個設定檔：
 
-- `/data/surprise/waste/config.toml` 控制 KeyMint 服務、其上報的身份，以及用於 KOBING 創建的密鑰的機密。
-- `/data/surprise/injector.toml` 選擇哪些 KeyStore 請求被路由到 KOBING。
-- `/data/surprise/bm.txt` 列出可以使用 KOBING 的應用包。
+- `/data/surprise/waste/config.toml`——管 KeyMint 服務本身、它對外報的身份，還有給 KOBING 建立的密鑰用的那些密文。
+- `/data/surprise/injector.toml`——決定哪些 KeyStore 請求轉到 KOBING。
+- `/data/surprise/bm.txt`——哪些應用能用 KOBING，名單就在這。
 
-本指南描述當前構建所使用的生效配置。示例之後附有獨立的逐字段參考，因此示例中的簡短註釋並非唯一的說明。
+這份指南寫的就是你裝置上目前生效的設定。範例後面還跟著一套分開的逐欄位說明，所以範例裡的註解不全沒關係，細節以欄位說明為準。
 
 **跳轉：** [`config.toml`](#configtoml) | [`injector.toml`](#injectortoml) | [`bm.txt`](#bmtxt)
 
 ## 編輯之前
 
-對於一般使用，通常唯一需要修改的設置是 `bm.txt` 中的包名允許清單。請保持 `injector.toml`、安全過濾器、所有 `[intercept]` 開關以及生成的 `[crypto]` 值不變。
+日常用的話，基本上只動一個地方就夠了：`bm.txt` 裡的包名。`injector.toml`、安全過濾、`[intercept]` 那一堆開關，還有生成出來的 `[crypto]` 值，都別碰。
 
-在進行修改之前：
+改之前先做三件事：
 
-1. 對所有生效文件做一份私有備份。
-2. 編輯 `/data/surprise/`（以及 `/data/surprise/waste/`）下的文件，而不是模組 ZIP 中的副本。
-3. 保持字符串在引號內，布爾值使用 `true` 或 `false`，並將包名放入 `bm.txt`，每行一個精確的包名。
-4. 每次只改動一處，保存完整文件，並在改動後檢查對應的日誌。
+1. 把生效中的檔案私下備份一份。
+2. 改的是 `/data/surprise/`（以及 `/data/surprise/waste/`）裡的檔案，不是模組 ZIP 裡那份。
+3. 字串照舊帶引號，布林值就寫 `true` / `false`；包名寫進 `bm.txt`，一行一個、寫全名。
 
-切勿公開 `[crypto]` 值、IMEI、IMEI2、MEID、序列號，或任一配置文件的未脫敏副本。
+一次只改一處，改完把整個檔案存下來，然後看一下對應的日誌。
+
+`[crypto]` 的值、IMEI、IMEI2、MEID、序號，還有任何沒脫敏的設定副本，都別往外傳。
 
 ## 改動如何被加載
 
-兩個組件都會監視其生效文件以獲得有效改動。它們的行為並不完全相同：
+兩個元件都會盯著自己的生效檔案，但行為不一樣：
 
-- 有效的 `injector.toml` 或 `bm.txt` 會應用到新請求，無需重啟。
-- 有效的 `config.toml` 會被自動讀取，但只有四個補丁級別字段和生物識別兼容開關能夠在不重啟 keymint 的情況下完全生效。下方的字段參考會說明何時需要重啟。
-- 在組件運行期間保存的格式錯誤的文件會被拒絕，內存中最後一個有效配置保持生效。
-- 若 keymint 啟動時存在格式錯誤的 `config.toml`，會阻止 keymint 啟動。修正該文件並重啟 keymint。
-- 若 injector 啟動時存在格式錯誤的 `injector.toml`，KOBING 請求路由將保持禁用。保存一個有效文件可讓監視器自動恢復路由；僅當無法恢復時才重啟 injector。
-- 若組件啟動時任一文件缺失，KOBING 會創建一個帶有生成默認值的新文件。這並不是重置可用配置的安全方式：重新生成的機密無法恢復由先前機密保護的密鑰。
+- `injector.toml` 和 `bm.txt` 的有效改動直接對新請求生效，不用重啟。
+- `config.toml` 會被自動讀取，但真正不用重啟 keymint 就能完全生效的，只有那四個補丁級別欄位和生物識別相容開關。其餘什麼時候要重啟，下面每個欄位都寫了。
+- 元件跑著的時候，存了格式錯的檔案會被直接拒掉，記憶體裡最後一份有效設定繼續用。
+- keymint 啟動時如果 `config.toml` 是壞的，它起不來。修好檔案，重啟 keymint。
+- injector 啟動時如果 `injector.toml` 是壞的，KOBING 路由會一直關著。存一份有效檔案，監視器自己會把路由接回來；真的恢復不了才重啟 injector。
+- 啟動時哪個檔案不見了，KOBING 會用預設值新建一個。別拿這個當「恢復出廠」用——重新生成的密文救不回原來那些密鑰。
 
-重啟命令記錄在[重啟 keymint 與 injector](../README.zh-TW.md#重啟-keymint-與-injector)中。在更改應用路由後，請關閉並重新打開受影響的應用，以避免將已打開的操作與新路由混用。若需要進程重啟來獲得清晰的邊界，只需重啟 injector。僅針對 injector 的設置更改不需要重啟 keymint。
+重啟指令見[重啟 keymint 與 injector](../README.zh-TW.md#重啟-keymint-與-injector)。改完路由，記得把受影響的應用關掉再打開，免得半路打開的操作跟新路由打架。真想要個乾淨的邊界，重啟 injector 就夠了；只改 injector 相關的設定，不用重啟 keymint。
 
 ## `config.toml`
 
 ### 完整帶註釋示例
 
-下方 `[crypto]` 下的數值是刻意不可用的脫敏佔位符。真實的生效文件包含唯一的、生成的十六進制值。切勿將這些佔位符值粘貼到設備中，也切勿替換可用文件中已存在的值。`[trust]` 與 `[device]` 的數值同樣是示例；除非你打算更改上報的身份，否則請保留生效文件中的值。
+下面 `[crypto]` 裡的值是故意寫壞的佔位符，沒有實際用處。你裝置上真正生效的檔案裡，是各自唯一的十六進位值。這些佔位符別往裝置裡貼，也別拿去覆蓋檔案裡已經有的值。`[trust]` 和 `[device]` 的值同樣只是範例——除非你確實想改上報的身份，不然保留生效檔案裡的原值就行。
 
 ```toml
-# 配置格式。保持為 2。
+# 設定格式，固定為 2。
 version = 2
 
 [main]
-# 受支持的服務連接。保持此值不變。
+# 服務連線方式。別改。
 backend = "injector"
-# KeyMint 日誌詳細程度：off、error、warn、info、debug 或 trace。
+# KeyMint 日誌級別：off、error、warn、info、debug、trace。
 log_level = "debug"
-# 不安全的生物識別兼容開關。常規使用請保持 false。
+# 不安全的生物識別相容開關。正常用保持 false。
 force_skip_system_biometric_hat_verification = false
 
 [crypto]
-# 僅脫敏佔位符。請保留生成的 64 字符值。
+# 只是脫敏佔位符。真實的 64 字元值要留著。
 root_kek_seed = "KEEP_THE_VALUE_FROM_THE_ACTIVE_FILE"
 kak_seed = "KEEP_THE_VALUE_FROM_THE_ACTIVE_FILE"
 shared_secret_seed = "KEEP_THE_VALUE_FROM_THE_ACTIVE_FILE"
 shared_secret_nonce = "KEEP_THE_VALUE_FROM_THE_ACTIVE_FILE"
-# 可選的專家覆蓋。通常讓此行缺失。
+# 專家才需要動的覆寫項。通常直接刪掉這行。
 # auth_token_hmac_key = "KEEP_THE_VALUE_FROM_THE_ACTIVE_FILE"
 
 [trust]
-# 每次 keymint 啟動時檢測 Android 主版本；使用整數可固定它。
+# 每次 keymint 啟動時自動偵測 Android 主版本；寫整數可以釘死。
 os_version = "auto"
-# 使用 auto、latest 或精確的 YYYY-MM-DD 日期；boot 也接受十進制 u32。
+# 可選 auto、latest，或精確的 YYYY-MM-DD；boot 也收十進位 u32。
 security_patch = "auto"
 os_patchlevel = "auto"
 vendor_patchlevel = "auto"
 boot_patchlevel = "auto"
-# 使用 auto、random 或恰好 64 個十六進制字符。
+# 可選 auto、random，或剛好 64 個十六進位字元。
 vb_key = "auto"
 vb_hash = "auto"
-# 為 true 時上報驗證啟動和已鎖定引導加載程序。
+# 為 true 時上報已驗證啟動、引導載入程式已鎖定。
 verified_boot_state = true
 device_locked = true
 
 [device]
-# 當應用請求證明 ID 時上報的設備身份字符串。
+# 應用要證明 ID 時上報的裝置身份字串。
 brand = "KEEP_THE_VALUE_FROM_THE_ACTIVE_FILE"
 device = "KEEP_THE_VALUE_FROM_THE_ACTIVE_FILE"
 product = "KEEP_THE_VALUE_FROM_THE_ACTIVE_FILE"
 manufacturer = "KEEP_THE_VALUE_FROM_THE_ACTIVE_FILE"
 model = "KEEP_THE_VALUE_FROM_THE_ACTIVE_FILE"
 serial = "KEEP_THE_VALUE_FROM_THE_ACTIVE_FILE"
-# false 時僅在可用時從設備填充空的電話相關字段。
+# 為 false 時，空的電話欄位只在能從裝置拿到值時填充。
 overrideTelephonyProperties = false
-# 空的可選標識符是有效的；不要臆造缺失的值。
+# 可選的識別碼空著是合法的，別硬編。
 meid = ""
 imei = ""
 imei2 = ""
@@ -100,206 +101,206 @@ imei2 = ""
 
 #### `version`
 
-標識配置格式。支持的值為整數 `2`。它既不是 Android 版本，也不是 KOBING 發行號。不要遞增它；當前文件應保持該值不變。熱重載會拒絕其他值，並保留最後一個有效的運行時配置。
+設定格式版本，只能是整數 `2`。它跟 Android 版本、KOBING 版本號都沒關係。別往上加，目前檔案保持這個值就行。寫別的值熱重載會拒絕，繼續沿用最後一份有效的執行時設定。
 
-在 keymint 啟動時，缺失的 `version` 會被視為 `0`。版本 `0` 和 `1` 會在服務啟動前就地遷移為 `2`，並將 `os_version` 設為 `"auto"`，以便後續 Android 升級在下一次 keymint 啟動時被檢測到。啟動還會移除過時的 `trust_record`。對於版本 `0`，缺失的補丁級別字段會繼承已配置的 `security_patch`。其他已配置及未知的值會被保留。熱重載期間不會執行遷移，因此請重啟 keymint 以遷移較舊的文件。不受支持的未來版本絕不會被覆蓋。
+keymint 啟動時如果缺 `version`，按 `0` 處理。`0` 和 `1` 會在服務啟動前就地升到 `2`，同時把 `os_version` 設成 `"auto"`，這樣以後升級 Android，下次 keymint 啟動就能認出來。啟動時還會順手刪掉過時的 `trust_record`。版本 `0` 如果缺補丁級別欄位，會繼承已經配置的 `security_patch`；其他已配置的和未知的值都原樣留著。熱重載不做遷移，想把舊檔案升級就得重啟 keymint。未來那種不認識的版本，絕不會被覆寫。
 
 ### `[main]`
 
 #### `backend`
 
-使用 `"injector"`。這是唯一受支持的用戶選擇，沒有其他可選的運行時後端，因此該字段應保持不變。
+就寫 `"injector"`。這是唯一支援的選擇，沒有別的執行時後端，別改。
 
 #### `log_level`
 
-控制 keymint 寫入的消息。使用 `"off"`、`"error"`、`"warn"`、`"info"`、`"debug"` 或 `"trace"` 之一。`"debug"` 是默認值，也是提交錯誤報告時最有用的級別。`"trace"` 更為冗長；`"off"` 會抑制正常日誌輸出。
+決定 keymint 往外打什麼日誌。可選 `"off"`、`"error"`、`"warn"`、`"info"`、`"debug"`、`"trace"`。預設 `"debug"`，提 bug 回報時也用它最合適。`"trace"` 話更多，`"off"` 直接把正常日誌全關掉。
 
-更改此字段需要重啟 keymint。無法識別的值會回退到 `debug`，但依賴該回退可能會掩蓋拼寫錯誤。
+改這個要重啟 keymint。認不出的值會退回 `debug`，但別指望它，容易把拼字錯誤蓋過去。
 
 #### `force_skip_system_biometric_hat_verification`
 
-這是一個不安全的兼容開關，適用於系統 KeyMint 無法正確驗證生物識別認證令牌的設備。當為 `true` 時，KOBING 會在不要求系統 KeyMint 驗證其認證碼的情況下，接受結構有效的令牌。
+一個不安全的相容開關，專門給那些系統 KeyMint 驗不好生物識別權杖的裝置用。開成 `true`，KOBING 就不要求系統 KeyMint 校驗認證碼了，權杖結構沒問題就認。
 
-除非維護者在診斷已確認的設備特定問題，否則請保持 `false`。它並不隱藏 root，也不是指紋或鎖屏故障的通用修復手段。有效保存後會應用到新的檢查，無需重啟 keymint。
+除非維護者確認是某個裝置特有的毛病，否則一直保持 `false`。它不負責藏 root，也不是指紋、鎖屏出問題的萬靈丹。存成有效值後對新檢查立刻生效，不用重啟 keymint。
 
 ### `[crypto]`
 
-本節的每個值都是私密的。每個值恰好為 32 字節，以 64 個十六進制字符（使用 `0-9` 和 `a-f`）表示。KOBING 在創建新配置時會生成這些值。
+這一節每個值都是機密。每個值剛好 32 位元組，寫成 64 個十六進位字元（`0-9`、`a-f`）。新建設定時 KOBING 會自己生成。
 
-請保持四個生成的種子與隨機數字段都存在且穩定，並將其與 KOBING 數據一起私下備份。更改或移除其中任何一個都需要重啟 keymint，並可能導致現有密鑰或綁定認證的操作不可用。來自其他設備的值以及本指南中的脫敏佔位符不能替代生效值。
+四個種子和隨機數欄位，要一直留著、別改動，跟著 KOBING 的資料一起私下備份好。改了或刪了任何一個，都得重啟 keymint，而且很可能導致既有的密鑰、或者綁定了認證的操作直接不能用。別拿別的裝置上的值，也別拿本文件裡的佔位符來頂替。
 
-如果缺少 `shared_secret_seed` 或 `shared_secret_nonce`，KOBING 在讀取文件時會生成新的隨機替代值。這並非穩定的生效配置，因此請確保兩個生成值都保持存在。
+`shared_secret_seed` 或 `shared_secret_nonce` 如果缺了，KOBING 讀檔案時會重新隨機生成一批。那就不算穩定的生效設定，所以這兩個值務必都在。
 
 #### `root_kek_seed`
 
-該種子用於派生保護 KOBING 密鑰 blob 的密鑰材料。如果它變化，KOBING 可能無法再打開使用先前值創建的密鑰。它必須存在且必須保持不變。
+用來派生保護 KOBING 密鑰 blob 的密鑰材料。它一變，那些用舊值建立的密鑰 KOBING 可能就打不開了。必須有，而且不能變。
 
 #### `kak_seed`
 
-該種子用於 KOBING 的密鑰協商保護。它屬於與 `root_kek_seed` 相同的設備特定機密集合。它必須存在且必須保持不變。
+KOBING 密鑰協商保護用的種子，跟 `root_kek_seed` 屬於同一套裝置機密。必須有，不能變。
 
 #### `shared_secret_seed`
 
-這是用於認證令牌驗證的共享機密參數的種子部分。請將其與 `shared_secret_nonce` 一起保留；僅更改其中一半仍會改變最終的機密。
+認證權杖校驗所用共享機密的種子部分。要跟 `shared_secret_nonce` 成對保留——只改一半，最終的機密照樣變。
 
 #### `shared_secret_nonce`
 
-這是共享機密參數的隨機數部分。它同樣是完整的 64 字符十六進制值，不是短計數器，也不是需要手動重新生成的值。
+共享機密的隨機數部分。同樣是完整的 64 字元十六進位值，不是什麼短計數器，也不用你手動重算。
 
 #### `auth_token_hmac_key`
 
-這個可選字段提供顯式的認證令牌 HMAC 密鑰。當它缺失時，KOBING 通過 `shared_secret_seed` 與 `shared_secret_nonce` 派生所需的密鑰。普通用戶應讓該字段缺失。如果顯式提供，它也必須恰好包含 64 個十六進制字符，並且必須保持私密和穩定。
+可選的顯式認證權杖 HMAC 密鑰。不寫這個欄位時，KOBING 會用 `shared_secret_seed` 加 `shared_secret_nonce` 自己推出來。一般使用者直接別寫這行。真要顯式給，也得剛好 64 個十六進位字元，同樣得保密、不能變。
 
 ### `[trust]`
 
-這些字段控制通過密鑰證明上報的值。它們不會修復硬件、續期證書、移除 keybox 吊銷，也不會隱藏 root。
+這一節管的是密鑰證明裡上報出去的那些值。它不會修硬體、不會續憑證、不會解除 keybox 吊銷，也不負責藏 root。
 
 #### `os_version`
 
-使用 `"auto"` 在每次 keymint 進程啟動時檢測當前 Android 主版本，或使用 `0` 到 `99` 的整數來固定一個主版本，例如 `12`、`16` 或 `17`。不要在此寫入帶點的版本號、SDK 號或安全補丁日期。KeyMint 使用 AOSP 的 `MMmmss` 公式對解析出的主版本進行編碼，因此固定的 `16` 會上報為 `160000`。更改此字段需要重啟 keymint。
+寫 `"auto"` 就每次 keymint 行程啟動時自己偵測目前 Android 主版本；也可以寫 `0` 到 `99` 的整數釘死一個，例如 `12`、`16`、`17`。別在這裡寫帶點的版本號、SDK 號或者安全補丁日期。KeyMint 按 AOSP 的 `MMmmss` 公式編碼解析出的主版本，所以釘住的 `16` 上報出去是 `160000`。改這個要重啟 keymint。
 
 #### `security_patch`
 
-控制 `ro.build.version.security_patch`。它接受：
+管的是 `ro.build.version.security_patch`。取值：
 
-- `"auto"`：使用當前的 `ro.build.version.security_patch` 值而不寫入它；
-- `"latest"`：在解析該值時使用當前日曆月的第五天；或
-- 實際日期，寫作 `"YYYY-MM-DD"`，包括前導零。
+- `"auto"`：沿用目前的 `ro.build.version.security_patch`，不改寫；
+- `"latest"`：解析時取目前日曆月的 5 號；
+- 具體日期，寫成 `"YYYY-MM-DD"`，要帶前導零。
 
-`"auto"` 首先使用非空的運行時屬性，其次是來自標準 `build.prop` 位置的精確鍵，最後若兩個來源都不可用則使用 `2025-06-05`。存在的運行時值會按原樣使用，而不會被 `build.prop` 的值替換。`"latest"` 和精確日期會有意覆蓋現有的運行時屬性，但 KOBING 從不創建或刪除它。`"auto"` 從不寫入該屬性。在一次顯式或 `"latest"` 覆蓋後，同一次啟動中切換回 `"auto"` 會保留當前的運行時值；重啟以恢復系統提供的值。
+`"auto"` 的取值順序是：先用執行時屬性裡非空的值，再找標準 `build.prop` 位置裡的精確鍵，兩個都沒有才用 `2025-06-05`。執行時裡已經有的值會原樣用，不會被 `build.prop` 的值頂替。`"latest"` 和精確日期是刻意覆寫執行時屬性的，但 KOBING 從不會建立或刪掉它。`"auto"` 從不寫這個屬性。同一次啟動裡，先顯式覆寫或用了 `"latest"`，再切回 `"auto"`，會保留目前執行時值；想要系統原本的值只能重啟。
 
 #### `os_patchlevel`
 
-控制 KeyMint OS 補丁級別。`"auto"` 跟隨生效的 `security_patch`；`"latest"` 和精確的 `"YYYY-MM-DD"` 日期會為 KeyMint 覆蓋它，而不寫入另一屬性。最終值使用 AOSP 的 `YYYY-MM-DD` 解析器解析，並編碼為 `YYYYMM`。
+管 KeyMint 的 OS 補丁級別。`"auto"` 跟著生效的 `security_patch` 走；`"latest"` 和精確的 `"YYYY-MM-DD"` 會單獨給 KeyMint 覆寫，不寫別的屬性。最終值走 AOSP 的 `YYYY-MM-DD` 解析器，編碼成 `YYYYMM`。
 
 #### `vendor_patchlevel`
 
-控制 KeyMint 供應商補丁級別。`"auto"` 首先讀取非空的運行時 `ro.vendor.build.security_patch`，其次是來自標準 `build.prop` 位置的精確鍵，最後回退到生效的 `os_patchlevel`。`"latest"` 和精確的 `"YYYY-MM-DD"` 日期同樣被接受。最終值使用 AOSP 的 `YYYY-MM-DD` 解析器解析，並編碼為 `YYYYMMDD`。存在的非空來源不會僅因後續解析失敗就被低優先級來源替換。KOBING 不寫入供應商屬性。
+管 KeyMint 的供應商補丁級別。`"auto"` 先讀執行時非空的 `ro.vendor.build.security_patch`，再找標準 `build.prop` 裡的精確鍵，都沒有就退回生效的 `os_patchlevel`。`"latest"` 和精確日期同樣可以用。最終值走 AOSP 的 `YYYY-MM-DD` 解析器，編碼成 `YYYYMMDD`。來源裡如果已經有非空值，不會因為後面解析失敗就被優先級更低的東西頂掉。KOBING 不寫供應商屬性。
 
 #### `boot_patchlevel`
 
-控制 KeyMint 啟動補丁級別。`"auto"` 首先從生效的頂層 vbmeta 鏡像讀取 `com.android.build.boot.security_patch`。如果該屬性缺失，KOBING 會從生效啟動鏡像的獨立 vbmeta 或 AVB 頁腳內嵌 vbmeta 中讀取同一屬性，然後回退到啟動頭。舊式頭字段存儲年和月但不含日，因此其線上值以 `00` 結尾；全零字段因此變為 `20000000`，但僅在兩個 vbmeta 位置均未提供該屬性之後。如果啟動元數據解析失敗，KOBING 使用以下回退順序：非空的運行時 `ro.vendor.boot_security_patch`、來自標準 `build.prop` 位置的精確鍵，然後是生效的 `os_patchlevel`。
+管 KeyMint 的啟動補丁級別。`"auto"` 先從生效的頂層 vbmeta 映像檔讀 `com.android.build.boot.security_patch`。這個屬性要是沒有，KOBING 會去生效啟動映像檔裡獨立的 vbmeta、或者 AVB 頁尾內嵌的 vbmeta 裡找同一個屬性，再不行才看啟動標頭。舊式標頭欄位只存年月、沒有日，所以線上值末尾是 `00`；全零欄位因此會變成 `20000000`——但這只有在前兩個 vbmeta 位置都沒給出該屬性時才會發生。啟動中繼資料解析失敗的話，回退順序是：執行時非空的 `ro.vendor.boot_security_patch` → 標準 `build.prop` 裡的精確鍵 → 生效的 `os_patchlevel`。
 
-`"latest"`、精確的 `"YYYY-MM-DD"` 日期以及十進制 `u32` 線上值同樣被接受。十進制形式會保留諸如 `"20000000"` 的引導加載程序線上值，而不將其解釋為日期。這些顯式模式不會讀取啟動元數據。啟動補丁級別解析不會讀取系統 TEE 或寫入啟動屬性。在熱重載期間，未更改的 `"auto"` 會保留在 keymint 降權之前解析出的值；從覆蓋切回 `"auto"` 會在 keymint 重啟後生效。顯式日期編碼為 `YYYYMMDD`。如果選定的值無法轉換，啟動會失敗；失敗的熱更新會保留先前的運行時配置。
+`"latest"`、精確的 `"YYYY-MM-DD"`，還有十進位 `u32` 線上值也都收。十進位能保留像 `"20000000"` 這種引導載入程式線上值，不把它當日期解釋。這幾種顯式寫法都不會去讀啟動中繼資料。啟動補丁級別解析既不看系統 TEE，也不寫啟動屬性。熱重載時，沒動過的 `"auto"` 會保住 keymint 降權之前解析到的那份值；從覆寫切回 `"auto"` 則要等 keymint 重啟才生效。顯式日期編碼成 `YYYYMMDD`。選出來的值轉不了的話，啟動會失敗；熱更新失敗就繼續用先前的執行時設定。
 
-當同一次保存中沒有其他 `[trust]` 字段變化時，這四個補丁級別字段會在 keymint 運行期間一起解析並應用。現有 TA 會就地更新，以便進行中的操作和每次啟動的計數器保持完好；等效的啟動表示不會觸發更新。如果對應的日誌報告實時更新失敗，請重啟 keymint。
+這四個補丁級別欄位，在同一次儲存裡沒有別的 `[trust]` 欄位一起變時，會在 keymint 執行期間一起解析、一起套用。現有 TA 就地更新，正在進行的操作和每次啟動的計數器都不受影響；表示形式上沒有實質變化的不會觸發更新。要是日誌說即時更新失敗，就重啟 keymint。
 
 #### `vb_key`
 
-控制 32 字節的驗證啟動公鑰摘要：
+管 32 位元組的驗證啟動公鑰摘要：
 
-- `"auto"` 首先讀取 `ro.boot.vbmeta.public_key_digest`，然後嘗試計算頂層 vbmeta 密鑰摘要，僅當兩個來源都不可用時才使用隨機回退；
-- `"random"` 在每次 keymint 啟動時生成新值；或
-- 64 字符的十六進制字符串固定一個精確值。
+- `"auto"`：先讀 `ro.boot.vbmeta.public_key_digest`，讀不到就試著算頂層 vbmeta 的密鑰摘要，兩個都不行才用隨機值兜底；
+- `"random"`：每次 keymint 啟動都生成新的；
+- 64 字元十六進位串：釘死某個確切值。
 
-除非你了解所配置的證明配置，否則請保持 `"auto"`。更改此字段需要重啟 keymint。如果 `"random"` 處於活動狀態而你又將其改回 `"auto"`，請重啟整個設備，以便 Android 在 `"auto"` 讀取之前恢復原始啟動屬性。
+除非你清楚自己在配什麼證明，不然保持 `"auto"`。改這個要重啟 keymint。要是 `"random"` 正開著、你想切回 `"auto"`，得整機重啟，讓 Android 先把原始啟動屬性恢復出來，`"auto"` 才讀得到。
 
 #### `vb_hash`
 
-控制 32 字節的驗證啟動哈希：
+管 32 位元組的驗證啟動雜湊：
 
-- `"auto"` 首先讀取 `ro.boot.vbmeta.digest`，然後嘗試原始系統證明哈希，僅當兩個來源都不可用時才使用隨機回退；
-- `"random"` 在每次 keymint 啟動時生成新值；或
-- 64 字符的十六進制字符串固定一個精確值。
+- `"auto"`：先讀 `ro.boot.vbmeta.digest`，讀不到就試原始系統證明雜湊，兩個都不行才用隨機值兜底；
+- `"random"`：每次 keymint 啟動都生成新的；
+- 64 字元十六進位串：釘死某個確切值。
 
-應用與 `vb_key` 相同的重啟規則：正常更改後重啟 keymint，從 `"random"` 返回 `"auto"` 時重啟整個設備。
+重啟規則跟 `vb_key` 一樣：正常改完重啟 keymint，從 `"random"` 回 `"auto"` 要整機重啟。
 
 #### `verified_boot_state`
 
-`true` 將驗證啟動狀態上報為已驗證；`false` 上報為未驗證。這與 `device_locked` 開關相互獨立。更改它需要重啟 keymint。
+`true` 表示上報「已驗證啟動」，`false` 表示「未驗證」。跟 `device_locked` 各管各的。改它要重啟 keymint。
 
 #### `device_locked`
 
-`true` 上報設備啟動狀態為已鎖定；`false` 上報為未鎖定。這並不會真正鎖定或解鎖引導加載程序。更改它需要重啟 keymint。
+`true` 表示上報裝置已鎖定，`false` 表示未鎖定。它並不會真的去鎖/解鎖引導載入程式。改它要重啟 keymint。
 
 ### `[device]`
 
-當應用顯式請求證明 ID 時，本節提供設備身份字符串。這些值是個人數據。使用已為設備生成的值，並在更改本節後重啟 keymint，以便重建一次性的證明 ID 快照。
+應用明確要證明 ID 時，這一節提供裝置身份字串。這些都是個人資料。用裝置上已經生成好的值；改完這一節要重啟 keymint，好把一次性的證明 ID 快照重建一遍。
 
 #### `brand`
 
-在證明 ID 請求中上報的產品品牌，創建新配置時通常基於 `ro.product.brand`。
+證明 ID 請求裡上報的品牌，新建設定時一般取自 `ro.product.brand`。
 
 #### `device`
 
-在證明 ID 請求中上報的設備代號，通常基於 `ro.product.device`。
+證明 ID 請求裡上報的裝置代號，一般取自 `ro.product.device`。
 
 #### `product`
 
-在證明 ID 請求中上報的產品名稱，通常基於 `ro.product.name`。
+證明 ID 請求裡上報的產品名，一般取自 `ro.product.name`。
 
 #### `manufacturer`
 
-在證明 ID 請求中上報的製造商名稱，通常基於 `ro.product.manufacturer`。
+證明 ID 請求裡上報的製造商，一般取自 `ro.product.manufacturer`。
 
 #### `model`
 
-在證明 ID 請求中上報的型號名稱，通常基於 `ro.product.model`。
+證明 ID 請求裡上報的型號，一般取自 `ro.product.model`。
 
 #### `serial`
 
-在證明 ID 請求中上報的設備序列號，通常基於 `ro.serialno`。請將其視為私密信息，並在報告中脫敏。
+證明 ID 請求裡上報的序號，一般取自 `ro.serialno`。當私密資訊對待，發報告前記得打碼。
 
 #### `overrideTelephonyProperties`
 
-在推薦值 `false` 下，KOBING 會嘗試僅從設備的電話服務及屬性回退中填充為空的 `imei`、`imei2` 和 `meid` 字段。已配置的非空值會被保留，並且 KOBING 會嘗試將每個成功發現的值寫回生效的 `config.toml`。
+建議值 `false`。這時 KOBING 會嘗試從裝置的電話服務和屬性回退裡，把空著的 `imei`、`imei2`、`meid` 填上。已經配好的非空值會被保留；每成功找到一個值，KOBING 還會試著寫回生效的 `config.toml`。
 
-在 `true` 下，KOBING 會跳過電話發現，並完全按所寫內容使用這三個已配置字段，包括空字符串。僅當你有意固定這些值時才使用它。
+設成 `true`，KOBING 就跳過電話探索，這三個欄位完全照你寫的來（包括空字串）。只有你確實想釘死這幾個值時才用它。
 
 #### `imei`
 
-主 IMEI。當設備沒有 IMEI 或應由自動發現填充時，請將其留空。不要為滿足某個應用而臆造值。
+主 IMEI。裝置沒有 IMEI，或者本來就該自動填的，就留空。別為了讓某個應用滿意硬編一個。
 
 #### `imei2`
 
-第二個 IMEI。單卡及部分雙卡設備可以合法地讓它為空。它的缺失不會使 `imei` 或非電話類設備字段失效。
+第二個 IMEI。單卡裝置、還有一些雙卡裝置，留空很正常。它空著不影響 `imei`，也不影響其他非電話欄位。
 
 #### `meid`
 
-提供 MEID 的設備所使用的 MEID。許多設備沒有 MEID，因此空值有效。它的缺失不會使可用的 IMEI 失效。
+有 MEID 的裝置才用。很多裝置本來就沒有 MEID，空著沒問題。它空著不會讓可用的 IMEI 失效。
 
 ### `config.toml` 應用匯總
 
-| 字段 | 所需操作 |
+| 欄位 | 要做什麼 |
 | --- | --- |
 | `[main].log_level` | 重啟 keymint。 |
-| `[main].force_skip_system_biometric_hat_verification` | 有效保存後應用到新的檢查。 |
-| 所有 `[crypto]` 字段 | 重啟 keymint；更改值可能導致密鑰不可用。 |
-| `[trust].security_patch`、`os_patchlevel`、`vendor_patchlevel`、`boot_patchlevel` | 當沒有其他 `[trust]` 字段變化時作為一組熱應用；否則重啟 keymint。 |
+| `[main].force_skip_system_biometric_hat_verification` | 有效儲存後對新檢查生效。 |
+| 所有 `[crypto]` 欄位 | 重啟 keymint；改值可能讓密鑰不能用。 |
+| `[trust].security_patch`、`os_patchlevel`、`vendor_patchlevel`、`boot_patchlevel` | 沒有別的 `[trust]` 欄位一起變時，作為一組熱套用；否則重啟 keymint。 |
 | `[trust].os_version` | 重啟 keymint。 |
-| 其他 `[trust]` 字段 | 重啟 keymint。 |
-| 所有 `[device]` 字段 | 重啟 keymint 以重建緩存的 ID 快照。 |
-| `vb_key` 或 `vb_hash` 從 `"random"` 到 `"auto"` | 重啟整個設備。 |
+| 其他 `[trust]` 欄位 | 重啟 keymint。 |
+| 所有 `[device]` 欄位 | 重啟 keymint，重建快取的 ID 快照。 |
+| `vb_key` 或 `vb_hash` 從 `"random"` 改回 `"auto"` | 整機重啟。 |
 
 ## `injector.toml`
 
 ### 完整帶註釋示例
 
 ```toml
-# 配置格式。保持為 1。
+# 設定格式，固定為 1。
 version = 1
 
-# 包名允許清單不再存儲於此。它位於 bm.txt；其路徑、格式與規則見下方
-# bm.txt 一節。
+# 包名名單不在這了。它挪到了 bm.txt，路徑、格式和規則見下面
+# bm.txt 那一節。
 
 [main]
-# 請求路由的總開關。常規使用請保持 true。
+# 路由總開關。正常用保持 true。
 enabled = true
-# Injector 日誌詳細程度：off、error、warn、info、debug 或 trace。
+# Injector 日誌級別：off、error、warn、info、debug、trace。
 log_level = "debug"
 
 [filter]
-# 強制執行 bm.txt 允許清單及下方安全規則。
+# 是否執行 bm.txt 名單和下面的安全規則。
 enabled = true
-# 即使另一個共享包被允許，也絕不使用 KOBING 的包。
+# 就算某個共享包被允許了，這些包也絕不用 KOBING。
 deny_packages = []
-# 阻止核心 Android 和系統身份。保持 true。
+# 攔掉核心 Android 和系統身份。保持 true。
 block_android_package = true
-# 拒絕無法找到包名的調用方。保持 false。
+# 包名解析不出來的呼叫方，是否拒絕。保持 false。
 allow_unknown_package = false
 
 [intercept]
-# 將被允許的調用方的每個具名 KeyStore 操作路由到 KOBING。
+# 被允許的呼叫方，它的每個具名 KeyStore 操作是否轉到 KOBING。
 get_security_level = true
 get_key_entry = true
 update_subcomponent = true
@@ -316,145 +317,144 @@ get_supplementary_attestation_info = true
 
 #### `version`
 
-標識 injector 配置格式。保持整數值 `1`。它既不是 Android 版本，也不是 KOBING 發行號。熱重載會拒絕其他值，並保留最後一個有效的運行時配置。
+injector 的設定格式版本，保持整數 `1`。跟 Android 版本、KOBING 版本號無關。熱重載會拒絕別的值，繼續用最後一份有效執行時設定。
 
-在 injector 啟動時，缺失的 `version` 會被視為 `0`，版本 `0` 會就地遷移為 `1`，同時保留文件的其餘部分。版本 `0` 不會在熱重載期間遷移，因此請重啟 injector 以遷移此類文件。不受支持的未來版本絕不會被覆蓋。
+injector 啟動時缺 `version` 就按 `0` 算，`0` 會就地升到 `1`，檔案其餘部分不動。熱重載不做這個升級，所以要升這種檔案得重啟 injector。未來不認識的版本絕不會被覆寫。
 
-如果省略了某個已記錄的 injector 字段，將使用其默認值。已記錄的頂層及具名節中的未知字段會被拒絕，因此不要添加本指南未描述的字段名。
+文件裡寫到的欄位如果沒寫，用預設值。頂層和具名節裡那些沒記錄的未知欄位會被拒，所以別加本文件沒講的欄位名。
 
 #### 包名允許清單
 
-`injector.toml` 不再存儲包名允許清單。可以使用 KOBING 的精確包名保存在一個單獨的文件 `bm.txt` 中。其路徑、格式與規則見下方 `bm.txt` 一節。
+`injector.toml` 不再存包名名單了。能用的精確包名單獨放在 `bm.txt`。路徑、格式和規則見下面 `bm.txt` 一節。
 
 ### `[main]`
 
 #### `enabled`
 
-這是 injector 的總路由開關。`true` 讓過濾器與 `[intercept]` 設置決定每個新請求。`false` 會停止新的 KOBING 路由，使普通請求繼續走系統。常規 KOBING 使用請保持 `true`。
+injector 的總路由開關。`true` 時，每個新請求交給過濾器和 `[intercept]` 決定。`false` 就不再往 KOBING 路由，普通請求照舊走系統。正常用 KOBING 就保持 `true`。
 
-避免在應用有密鑰操作打開時更改此開關。保存更改，重啟 injector，並在有意識切換路由時重新打開應用。
+應用還開著密鑰操作的時候，別去動這個開關。儲存改動、重啟 injector，要切路由就把應用重新打開。
 
 #### `log_level`
 
-控制 injector 消息。接受的值有 `"off"`、`"error"`、`"warn"`、`"warning"`、`"info"`、`"debug"` 和 `"trace"`；`"warning"` 是 `"warn"` 的別名。匹配不區分大小寫，但推薦使用小寫值。`"debug"` 是默認值，也是提交錯誤報告時的常規選擇。
+管 injector 的日誌。可選 `"off"`、`"error"`、`"warn"`、`"warning"`、`"info"`、`"debug"`、`"trace"`，其中 `"warning"` 是 `"warn"` 的別名。比對不分大小寫，不過建議寫小寫。預設 `"debug"`，提 bug 回報一般也用它。
 
-有效的文件更改會在不重啟 injector 的情況下更新級別。無法識別的字符串不會使 TOML 文件失效；injector 會改用 `debug`。
+有效改動不用重啟 injector 就能換級別。認不出的字串不會讓 TOML 檔案失效，injector 會退回 `debug`。
 
 ### `[filter]`
 
-在過濾器啟用的情況下，KOBING 按以下順序評估調用方：
+過濾器開著時，KOBING 按這個順序判斷呼叫方：
 
-1. 當 `block_android_package = true` 時，拒絕核心 Android 或系統身份。
-2. 如果其包名無法解析，則遵循 `allow_unknown_package`。
-3. 如果任何解析出的包在 `deny_packages` 中，則拒絕整個身份。
-4. 如果其解析出的包均未列在 `bm.txt` 中，則拒絕它。
-5. 否則允許其使用已啟用的 `[intercept]` 路由。
+1. `block_android_package = true` 時，先拒掉核心 Android 或系統身份。
+2. 包名解析不出來的，看 `allow_unknown_package`。
+3. 解析出的包裡有任何一個在 `deny_packages` 裡，整個身份都拒。
+4. 解析出的包一個都不在 `bm.txt` 裡，拒掉。
+5. 以上都沒問題，就放它走已啟用的 `[intercept]` 路由。
 
-對於共享同一 Android 身份的包，此順序很重要：拒絕規則優先於 `bm.txt` 中的匹配條目。
+幾個包共享同一個 Android 身份時，順序就很關鍵：拒絕規則優先於 `bm.txt` 裡的比對。
 
-在此常規過濾決策之後，`bm.txt` 一節所述的、KOBING 所屬的窄範圍授權例外，可為未知或超出範圍的某個應用保留訪問權限。它不會覆蓋 Android 包阻止或 `deny_packages`。
+常規過濾判斷之後，還有 `bm.txt` 一節講的那個窄範圍授權例外，能給某個未知或範圍外的應用留條存取權限。它不會推翻 Android 包攔截或 `deny_packages`。
 
 #### `enabled`
 
-`true` 強制執行 `bm.txt` 允許清單、拒絕清單、Android 包阻止以及未知包策略。`false` 會繞過全部四項檢查，並允許每個調用方訪問 `[intercept]` 下啟用的任何操作。
+`true` 會真正執行 `bm.txt` 名單、拒絕名單、Android 包攔截和未知包策略。`false` 就跳過這四項檢查，任何呼叫方都能存取 `[intercept]` 裡開著的操作。
 
-禁用過濾器可能將 Android 服務及無關應用路由到 KOBING，並可能破壞解鎖、應用存儲或用戶界面。請保持 `true`。
+關掉過濾器可能把 Android 服務、還有一堆無關應用都路由到 KOBING，進而搞壞解鎖、應用儲存或者介面。保持 `true`。
 
 #### `deny_packages`
 
-這是一個精確包名的數組，這些包不得使用 KOBING。當某個已選包與另一個必須留在系統的包共享其 Android 身份時，它很有用。如果為該身份解析出的任一包被拒絕，則整個身份都會被拒絕，即使另一個包已列在 `bm.txt` 中。
+一個精確包名陣列，裡面的包不許用 KOBING。某個包被選中、又跟另一個必須留在系統的包共享 Android 身份時，這個就有用。該身份解析出的包只要有一個被拒，整個身份都拒，哪怕另一個包已經寫在 `bm.txt` 裡。
 
-空數組 `[]` 是默認值。該列表使用帶引號、逗號分隔的 TOML 語法；它與單獨的 `bm.txt` 允許清單無關。
+預設是空陣列 `[]`。列表用帶引號、逗號分隔的 TOML 語法，跟單獨的 `bm.txt` 名單互不相干。
 
 #### `block_android_package`
 
-`true` 在考慮 `bm.txt` 之前就拒絕核心 Android 和系統身份。它還會拒絕解析出的包名等於 `android` 或以 `android.` 開頭的調用方。這並不意味著每個名稱以 `com.android.` 開頭的普通應用都會被自動阻止。
+`true` 時，還沒輪到看 `bm.txt` 就把核心 Android 和系統身份拒了；解析出的包名等於 `android`、或者以 `android.` 開頭的呼叫方也會被拒。注意，這不代表名字以 `com.android.` 開頭的普通應用會被一併攔掉。
 
-請保持此設置為 `true`。將其設為 `false` 只是移除了這項安全檢查；其餘過濾規則仍然適用。
+保持 `true`。設成 `false` 只是把這道安全檢查拿掉了，其餘過濾規則照舊。
 
 #### `allow_unknown_package`
 
-控制 Android 包名無法解析的調用方。`false` 拒絕該調用方，這是安全的默認值。`true` 允許未解析的應用身份而無需在 `bm.txt` 中匹配；當 `block_android_package = true` 時，核心 Android 身份仍會被拒絕。
+管的是 Android 包名解析不出來的呼叫方。`false` 直接拒，這是穩妥的預設值。`true` 就允許身份不明、又沒在 `bm.txt` 裡比對上的應用；不過 `block_android_package = true` 時，核心 Android 身份還是會被拒。
 
-此設置不是「所有應用」開關。除非維護者已確認某個受支持的應用無法正常解析，否則請保持 `false`。
+它不是「通吃所有應用」的開關。除非維護者確認某個支援的應用死活解析不出來，否則保持 `false`。
 
 ### `[intercept]`
 
-每個開關控制一個 Android KeyStore 服務操作。對於被過濾器允許的調用方，`true` 將該操作路由到 KOBING，`false` 將該操作留在系統上。這些開關不會遷移現有密鑰，也不會使系統創建的密鑰引用可被 KOBING 使用。
+每個開關對應一個 Android KeyStore 服務操作。對過濾器放行的呼叫方，`true` 就把該操作轉到 KOBING，`false` 就留在系統裡。這些開關不會遷移既有密鑰，也不會讓系統建立的密鑰引用變成 KOBING 能用。
 
-KOBING 所屬的授權例外與普通包路由相互獨立。帶有已確認 KOBING 授權的請求，即使接收應用在 `bm.txt` 允許清單之外，仍可返回 KOBING，從而使已授權的密鑰保持可用。
+KOBING 那個授權例外跟普通包路由是兩碼事。請求帶著已確認的 KOBING 授權，就算接收應用不在 `bm.txt` 名單裡，照樣能回到 KOBING，被授權的密鑰就還能用。
 
-常規使用請保持所有開關為 `true`。對同一應用混用系統與 KOBING 操作可能導致密鑰缺失錯誤、列表不一致或後續操作失敗。
+正常用就全部保持 `true`。同一個應用混著走系統和 KOBING，容易出現密鑰找不到、列表對不上或者後續操作失敗。
 
 #### `get_security_level`
 
-控制對 TEE 或 StrongBox KeyStore 安全級別句柄的請求。應用將該句柄用於後續操作，如創建、導入和使用密鑰。
+管對 TEE 或 StrongBox 安全級別代號的請求。應用拿到這個代號，後面才有建立、匯入、使用密鑰這些操作。
 
 #### `get_key_entry`
 
-控制對現有密鑰條目的檢索，包括其元數據及用於後續密鑰操作的句柄。
+管取回既有密鑰條目，包括它的中繼資料和後續操作用的代號。
 
 #### `update_subcomponent`
 
-控制替換現有密鑰條目的證書或證書鏈組件。
+管替換既有密鑰條目的憑證或憑證鏈組件。
 
 #### `list_entries`
 
-控制列出所請求命名空間中的密鑰別名。
+管列出所請求命名空間裡的密鑰別名。
 
 #### `delete_key`
 
-控制刪除具名密鑰。選定的後端具有權威性；KOBING 不會刪除匹配的系統密鑰作為替代。
+管刪除具名密鑰。選中的後端說了算；KOBING 不會順手刪掉對應的系統密鑰來頂替。
 
 #### `grant`
 
-控制授予另一個應用訪問某密鑰的權限。
+管把某個密鑰的存取權限授予另一個應用。
 
 #### `ungrant`
 
-控制移除先前授予的密鑰權限。
+管撤銷之前授予的密鑰權限。
 
 #### `get_number_of_entries`
 
-控制統計命名空間中的密鑰條目數。
+管統計命名空間裡的密鑰條目數。
 
 #### `list_entries_batched`
 
-控制密鑰條目的分頁或批量列出。
+管密鑰條目的分頁或批次列出。
 
 #### `get_supplementary_attestation_info`
 
-控制檢索受支持的證明請求所使用的補充信息。
+管取回受支援證明請求要用的補充資訊。
 
 ### 按包劃分的子表
 
-諸如 `[scoop.com.example.app]` 的按包劃分的表，以及諸如 `mode = "strict"` 的值，都不是受支持的路由選項。它們在文件被解析時可能被保留，但不會改變由哪個後端處理請求。不要添加它們；允許清單請使用 `bm.txt`，路由請使用 `[filter]` 和 `[intercept]`。
+`[scoop.com.example.app]` 這類按包劃分的表，還有 `mode = "strict"` 這類值，都不是支援的路由選項。檔案解析時它們可能被留著，但不會改變哪個後端處理請求。別加它們：名單用 `bm.txt`，路由用 `[filter]` 和 `[intercept]`。
 
 ### `injector.toml` 應用匯總
 
-每個有效的已記錄字段更改都會應用到新請求，無需重啟設備。對於 `bm.txt` 允許清單、`[main].enabled`、`[filter]` 或 `[intercept]` 的更改，當你需要在路由變化後獲得清晰邊界時，請重啟 injector 並重新打開受影響的應用。語法錯誤、未知字段或不受支持的未來 `version` 會讓最後一個有效的運行時配置保持生效；如果它們在 injector 啟動時存在，則會使 KOBING 請求路由保持禁用，直到文件被修正。
-
+每個已記錄欄位的有效改動都會對新請求生效，不用重啟裝置。改的是 `bm.txt` 名單、`[main].enabled`、`[filter]` 或 `[intercept]`，想要路由變化後有個乾淨邊界，就重啟 injector 並把受影響的應用重新打開。語法錯誤、未知欄位，或者未來不支援的 `version`，會讓最後一份有效執行時設定繼續生效；如果這些在 injector 啟動時就存在，KOBING 路由會一直關著，直到檔案修好。
 
 ## `bm.txt`
 
-`bm.txt` 列出可以使用 KOBING 的精確 Android 包名。它取代了原先位於 `injector.toml` 內的 `scoop` 數組。
+`bm.txt` 裡是可以使用 KOBING 的精確 Android 包名。它取代了原先放在 `injector.toml` 裡的 `scoop` 陣列。
 
 ### 路徑
 
-- 運行時實體：`/data/surprise/bm.txt`
+- 執行時實體：`/data/surprise/bm.txt`
 
-injector 直接讀取該實體路徑。
+injector 直接讀這個實體路徑。
 
 ### 格式
 
-- 每行一個包名，例如 `com.example.app`。
-- 空行以及第一個非空格字符為 `#` 的行會被忽略。
-- 首尾空格會被去除，重複條目會合併為一條。
-- 不接受應用標籤、部分名稱或通配符。
+- 一行一個包名，例如 `com.example.app`。
+- 空行、以及第一個非空字元是 `#` 的行，忽略。
+- 首尾空格去掉，重複的合併成一條。
+- 不支援應用標籤、部分名稱或萬用字元。
 
-在模組安裝時以及每次啟動時，如果文件缺失，模組會從打包的默認列表生成 `bm.txt`，然後將所有權修正為 `keystore`、權限修正為 `0644`。編輯該文件會應用到新請求，無需重啟；當你需要清晰的路由邊界時，請重啟 injector 並重新打開受影響的應用。
+模組安裝時、以及每次啟動時，檔案不在的話，模組會用打包的預設列表生成 `bm.txt`，然後把擁有者改成 `keystore`、權限改成 `0644`。改這個檔案對新請求立即生效，不用重啟；想要清晰的路由邊界，就重啟 injector 並重新打開受影響的應用。
 
-### 默認內容
+### 預設內容
 
 ```text
 io.github.vvb2060.keyattestation
@@ -464,6 +464,6 @@ com.android.vending
 com.eltavine.duckdetector
 ```
 
-Android 可以為多個包分配同一身份。在這種情況下，只要列出其中任何一個包，就允許該共享身份，除非某條過濾規則拒絕了該組中的某個包。添加或移除某個包不會在系統與 KOBING 之間移動或轉換密鑰；應用可能失去對通過另一條路由創建的密鑰的訪問權限。
+Android 允許幾個包共用一個身份。這種情況下列出任一包就放行整個身份，除非某條過濾規則拒了這組裡的某個包。增刪某個包，並不會在系統和 KOBING 之間搬密鑰或轉密鑰；應用可能因此打不開之前用另一條路由建立的密鑰。
 
-存在一個窄範圍的已授權密鑰例外。位於 `bm.txt` 之外的應用，或其包名無法解析的應用，仍可使用 KOBING 確認屬於某個 KOBING 密鑰的密鑰訪問授權。這樣可使由另一應用刻意共享的密鑰保持可用，而不授予接收應用通用的 KOBING 訪問權限。被 Android 阻止及被拒絕清單列出的調用方不會獲得此例外。
+還有一個窄範圍的已授權密鑰例外。不在 `bm.txt` 裡的應用、或者包名解析不出來的應用，仍然可以用 KOBING 去確認某個 KOBING 密鑰的存取授權。這樣別的應用主動共享出來的密鑰還能繼續用，同時又不會把 KOBING 的通用存取權給接收方。被 Android 攔掉的、以及被拒絕名單點名的呼叫方，拿不到這個例外。
