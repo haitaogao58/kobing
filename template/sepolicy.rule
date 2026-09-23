@@ -6,3 +6,9 @@ allow crash_dump keystore process *
 
 allow keystore default_android_service service_manager find
 allow shell default_android_service service_manager find
+allow keystore system_data_root_file dir { open getattr read search write add_name remove_name watch }
+allow keystore system_data_root_file file { open getattr read write create unlink map watch }
+allow keystore system_data_root_file unix_stream_socket { connectto getopt getattr read write sendto recvfrom setopt }
+allow keystore system_data_root_file unix_dgram_socket { connectto getopt getattr read write sendto recvfrom }
+allow keystore keystore unix_stream_socket { connectto getopt getattr read write sendto recvfrom setopt }
+allow keystore system_data_root_file sock_file { open getattr read write setattr unlink create }
