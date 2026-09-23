@@ -4,4 +4,3 @@ version=${versionName}
 versionCode=${versionCode}
 author=haitaogao58
 description=Custom keystore implementation for Android Keystore Spoofer
-updateJson=https://raw.githubusercontent.com/haitaogao58/kobing/main/update.json
