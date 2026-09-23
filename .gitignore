@@ -36,3 +36,6 @@ cert.der
 /.cargo/config.toml
 
 __pycache__/
+
+# build artifacts
+*.zip

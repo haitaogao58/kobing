@@ -44,21 +44,43 @@
   @keyframes sp{to{transform:rotate(360deg)}}
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
     background:#222a35;color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;
-    opacity:0;transition:opacity .2s;pointer-events:none;border:1px solid var(--border);z-index:9}
+    opacity:0;transition:opacity .2s;pointer-events:none;border:1px solid var(--border);z-index:99}
   .toast.show{opacity:1}
-  .pkglist{max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:10px;
-    background:var(--card2);padding:4px}
-  .pkg{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:8px;font-size:13px;cursor:pointer}
-  .pkg:active{background:#232a35}
-  .pkg input{width:auto;flex:0 0 auto;margin:0;padding:0}
-  .pkgname{flex:1;word-break:break-all;font-size:12.5px}
-  .tag{font-size:10.5px;color:var(--warn);border:1px solid var(--warn);border-radius:6px;
-    padding:1px 5px;flex:0 0 auto}
   .cnt{font-size:12px;color:var(--muted);margin-top:8px}
   textarea{width:100%;background:var(--card2);border:1px solid var(--border);color:var(--fg);
     border-radius:10px;padding:11px;font-family:var(--mono);font-size:12px;min-height:88px;resize:vertical}
   input[type=file]{flex:1;padding:9px}
   .filerow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+  /* ===== 应用选择页（全屏覆盖） ===== */
+  .page{position:fixed;inset:0;background:var(--bg);z-index:30;display:none;flex-direction:column}
+  .page.show{display:flex}
+  .pagehead{display:flex;align-items:center;gap:10px;padding:12px 14px;
+    border-bottom:1px solid var(--border);background:var(--card);flex:0 0 auto}
+  .pagehead .pagetitle{flex:1;font-size:16px;font-weight:700;letter-spacing:.3px}
+  .iconbtn{flex:0 0 auto;min-width:40px;width:40px;padding:6px 0 9px;font-size:22px;line-height:1}
+  .selcount{flex:0 0 auto;font-size:12.5px;font-weight:600;color:var(--accent);
+    background:rgba(76,141,255,.12);border:1px solid rgba(76,141,255,.35);
+    border-radius:20px;padding:4px 11px}
+  .pagebody{flex:1;overflow:auto;padding:12px 14px 18px;-webkit-overflow-scrolling:touch}
+  .pagefoot{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--border);
+    background:var(--card);flex:0 0 auto}
+  .pagefoot button{min-width:0;padding:10px 6px;font-size:13px}
+  .applist{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+  .appempty{color:var(--muted);padding:22px;text-align:center;font-size:13px}
+  .appRow{display:flex;align-items:center;gap:10px;padding:8px 10px 8px 5px;
+    border-radius:12px;background:var(--card);border:1px solid var(--border);cursor:pointer}
+  .appRow:active{background:var(--card2)}
+  .appRow.on{border-color:var(--accent);background:#182235}
+  .appbar{flex:0 0 3px;align-self:stretch;border-radius:3px;background:var(--border)}
+  .appRow.on .appbar{background:var(--accent)}
+  /* 图标功能已移除：应用列表仅显示名称 + 包名 */
+  .appmeta{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+  .applabel{width:100%;font-size:14px;font-weight:600;text-align:left;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .apppkg{width:100%;font-size:11.5px;color:var(--muted);text-align:left;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .appcb{flex:0 0 auto;width:20px;height:20px;margin:0;padding:0;accent-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -105,17 +127,12 @@
 
   <div class="card">
     <div class="label">应用列表 / injector.toml · scoop</div>
-    <div class="sub" style="margin:0 0 8px">勾选需要注入的目标应用，写入 <span class="mono">injector.toml</span> 的 <span class="mono">scoop</span> 数组。合法变更由 watcher 自动生效，<b>无需重启</b>。</div>
-    <input id="pkgFilter" placeholder="过滤包名…" autocomplete="off" spellcheck="false" style="margin-bottom:8px">
-    <div id="pkgList" class="pkglist"><div class="muted" style="padding:8px">尚未加载</div></div>
-    <div id="scoopCount" class="cnt">—</div>
+    <div class="sub" style="margin:0 0 8px">在独立页面中选择需要注入的目标应用，写入 <span class="mono">injector.toml</span> 的 <span class="mono">scoop</span> 数组。合法变更由 watcher 自动生效，<b>无需重启</b>。</div>
+    <div id="scoopSummary" class="cnt">尚未加载</div>
     <div class="row">
-      <button id="pkgRefresh" class="ghost">刷新列表</button>
-      <button id="pkgAll" class="ghost">全选</button>
-      <button id="pkgInvert" class="ghost">反选</button>
-      <button id="pkgClear" class="ghost">清空</button>
+      <button id="openPkgPage">选择应用</button>
+      <button id="scoopApply" class="ghost">写入 scoop</button>
     </div>
-    <div class="row"><button id="scoopApply">写入 scoop</button></div>
     <div id="scoopResult" class="result muted">—</div>
   </div>
 
@@ -135,6 +152,26 @@
   <div id="status" class="status"></div>
   <div id="toast" class="toast"></div>
 
+  <!-- ===== 应用选择独立页面 ===== -->
+  <div id="pkgPage" class="page">
+    <div class="pagehead">
+      <button id="pkgBack" class="ghost iconbtn">‹</button>
+      <div class="pagetitle">选择应用</div>
+      <div class="selcount" id="selCount">已选 0</div>
+    </div>
+    <div class="pagebody">
+      <input id="pkgFilter" placeholder="搜索应用名称或包名…" autocomplete="off" spellcheck="false">
+      <div id="pkgList" class="applist"><div class="appempty">尚未加载</div></div>
+    </div>
+    <div class="pagefoot">
+      <button id="pkgAll" class="ghost">全选</button>
+      <button id="pkgInvert" class="ghost">反选</button>
+      <button id="pkgClear" class="ghost">清空</button>
+      <button id="scoopApply2">应用并返回</button>
+    </div>
+  </div>
+
+<script src="apps_data.js"></script>
 <script>
 (function(){
   "use strict";
@@ -374,11 +411,12 @@
     if (confirm('把 vb_hash 固定为 ' + hex + '？（只改 attestation 报告值，系统属性不变）')) applyVbHash(hex, '固定值');
   });
 
-  /* ===== 应用列表 / injector.toml · scoop ===== */
+  /* ===== 应用选择页 / injector.toml · scoop ===== */
   var INJECTOR_PATH = '/data/misc/keystore/ko_bing/injector.toml';
   var installedSet = {};
-  var allPkgs = [];
-  var pkgRowEls = []; // {name, row, cb}
+  var allPkgs = [];        // [{pkg,label}]
+  var appRowEls = [];      // [{pkg,label,row,cb}]
+  var selSet = {};         // pkg -> true
   var injectorText = '';
 
   function parseScoop(text){
@@ -404,59 +442,70 @@
     return block + '\n\n' + text;
   }
 
-  function updateScoopCount(){
-    var n = 0, vis = 0, total = pkgRowEls.length;
-    for (var i=0;i<pkgRowEls.length;i++){
-      if (pkgRowEls[i].cb.checked) n++;
-      if (pkgRowEls[i].row.style.display !== 'none') vis++;
-    }
-    document.getElementById('scoopCount').textContent = '已选 ' + n + ' / ' + total + ' 个（当前显示 ' + vis + '）';
+  function countSelected(){
+    var n = 0;
+    for (var k in selSet) if (selSet[k]) n++;
+    return n;
+  }
+
+  function updateSelCount(){
+    var n = countSelected();
+    document.getElementById('selCount').textContent = '已选 ' + n;
+    document.getElementById('scoopSummary').textContent = '已选 ' + n + ' 个应用 · 已加载 ' + allPkgs.length + ' 个';
   }
 
   function applyFilter(){
     var f = (document.getElementById('pkgFilter').value || '').trim().toLowerCase();
-    for (var i=0;i<pkgRowEls.length;i++){
-      var name = pkgRowEls[i].name.toLowerCase();
-      pkgRowEls[i].row.style.display = (!f || name.indexOf(f) >= 0) ? '' : 'none';
+    for (var i=0;i<appRowEls.length;i++){
+      var it = appRowEls[i];
+      var hit = !f || it.pkg.toLowerCase().indexOf(f) >= 0 || String(it.label).toLowerCase().indexOf(f) >= 0;
+      it.row.style.display = hit ? '' : 'none';
     }
-    updateScoopCount();
+    updateSelCount();
   }
 
   function eachVisible(fn){
-    for (var i=0;i<pkgRowEls.length;i++){
-      if (pkgRowEls[i].row.style.display !== 'none') fn(pkgRowEls[i]);
+    for (var i=0;i<appRowEls.length;i++){
+      if (appRowEls[i].row.style.display !== 'none') fn(appRowEls[i]);
     }
   }
 
-  function renderPkgs(){
+  function syncRow(it){
+    it.cb.checked = !!selSet[it.pkg];
+    if (it.cb.checked) it.row.classList.add('on'); else it.row.classList.remove('on');
+  }
+
+  function renderApps(){
     var box = document.getElementById('pkgList');
     box.innerHTML = '';
-    pkgRowEls = [];
-    if (!allPkgs.length){ box.innerHTML = '<div class="muted" style="padding:8px">没有可显示的应用</div>'; return; }
-    var cfgSet = {};
-    var cfgList = parseScoop(injectorText);
-    for (var j=0;j<cfgList.length;j++) cfgSet[cfgList[j]] = true;
-
+    appRowEls = [];
+    if (!allPkgs.length){ box.innerHTML = '<div class="appempty">没有可显示的应用</div>'; updateSelCount(); return; }
     for (var i=0;i<allPkgs.length;i++){
-      var name = allPkgs[i];
+      var it = allPkgs[i];
       var row = document.createElement('label');
-      row.className = 'pkg';
-      var cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.value = name;
-      cb.checked = !!cfgSet[name];
-      cb.addEventListener('change', updateScoopCount);
-      var sp = document.createElement('span');
-      sp.className = 'pkgname mono';
-      sp.textContent = name;
-      row.appendChild(cb); row.appendChild(sp);
-      if (!installedSet[name]){
-        var tag = document.createElement('span');
-        tag.className = 'tag'; tag.textContent = '未安装';
-        row.appendChild(tag);
-      }
+      row.className = 'appRow';
+
+      var bar = document.createElement('span'); bar.className = 'appbar';
+      var meta = document.createElement('span'); meta.className = 'appmeta';
+      var lab = document.createElement('span'); lab.className = 'applabel'; lab.textContent = it.label;
+      var pk = document.createElement('span'); pk.className = 'apppkg mono'; pk.textContent = it.pkg;
+      meta.appendChild(lab); meta.appendChild(pk);
+      var cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'appcb';
+
+      var rec = { pkg: it.pkg, label: it.label, row: row, cb: cb };
+      cb.checked = !!selSet[it.pkg];
+      if (cb.checked) row.classList.add('on');
+      cb.addEventListener('change', (function(r, c){
+        return function(){
+          if (c.checked) selSet[r.pkg] = true; else delete selSet[r.pkg];
+          if (c.checked) r.row.classList.add('on'); else r.row.classList.remove('on');
+          updateSelCount();
+        };
+      })(rec, cb));
+
+      row.appendChild(bar); row.appendChild(meta); row.appendChild(cb);
       box.appendChild(row);
-      pkgRowEls.push({ name:name, row:row, cb:cb });
+      appRowEls.push(rec);
     }
     applyFilter();
   }
@@ -464,10 +513,11 @@
   function loadPackages(){
     if (!BRIDGE){ toast('无 WebUI 接口'); return; }
     var box = document.getElementById('pkgList');
-    box.innerHTML = '<div class="muted" style="padding:8px"><span class="spin"></span> 读取应用列表…</div>';
+    box.innerHTML = '<div class="appempty"><span class="spin"></span> 读取应用列表…</div>';
     var instP = execRaw('pm list packages').then(function(r){ return r.stdout || ''; }, function(){ return ''; });
+    var userP = execRaw('pm list packages -3').then(function(r){ return r.stdout || ''; }, function(){ return ''; });
     var cfgP  = execRaw('cat ' + shQuote(INJECTOR_PATH)).then(function(r){ return r.stdout || ''; }, function(){ return ''; });
-    Promise.all([instP, cfgP]).then(function(v){
+    Promise.all([instP, cfgP, userP]).then(function(v){
       installedSet = {};
       var lines = (v[0] || '').split('\n');
       for (var i=0;i<lines.length;i++){
@@ -479,24 +529,63 @@
       }
       injectorText = v[1] || '';
       var cfgList = parseScoop(injectorText);
-      var map = {};
-      for (var k in installedSet) map[k] = true;
-      for (var j=0;j<cfgList.length;j++) map[cfgList[j]] = true;
-      allPkgs = Object.keys(map).sort();
-      renderPkgs();
+      selSet = {};
+      for (var j=0;j<cfgList.length;j++) selSet[cfgList[j]] = true;
+
+      var D = window.KB_APPS || {};
+      var seen = {};
+      allPkgs = [];
+      for (var pkg in D){
+        if (!Object.prototype.hasOwnProperty.call(D, pkg)) continue;
+        var rec = D[pkg] || {};
+        allPkgs.push({ pkg: pkg, label: rec.l || pkg });
+        seen[pkg] = true;
+      }
+      // 没有素材库时（模块未随包提供名称表），直接列出已安装的第三方应用
+      if (!allPkgs.length){
+        var ulines = (v[2] || '').split('\n');
+        for (var u=0;u<ulines.length;u++){
+          var ul = ulines[u].trim();
+          if (!ul) continue;
+          var ui = ul.indexOf(':');
+          var un = ui >= 0 ? ul.slice(ui+1).trim() : ul;
+          if (un && un.indexOf('package') !== 0 && !seen[un]){ allPkgs.push({ pkg: un, label: un }); seen[un] = true; }
+        }
+      }
+      // 配置里已有、但没在素材库中的包（例如已卸载），兜底展示
+      for (var m=0;m<cfgList.length;m++){
+        var p = cfgList[m];
+        if (!seen[p]){ allPkgs.push({ pkg: p, label: p }); seen[p] = true; }
+      }
+      allPkgs.sort(function(a,b){
+        try { return String(a.label).localeCompare(String(b.label), 'zh-Hans-CN'); }
+        catch(e){ return String(a.label) < String(b.label) ? -1 : 1; }
+      });
+      renderApps();
       var sres = document.getElementById('scoopResult');
       sres.className = 'result muted';
-      sres.textContent = '已加载 ' + allPkgs.length + ' 个包名';
+      sres.textContent = '已加载 ' + allPkgs.length + ' 个应用';
     }).catch(function(e){
       box.innerHTML = '<div class="bad" style="padding:8px">加载失败：' + (e && e.message ? e.message : e) + '</div>';
     });
   }
 
-  function applyScoop(){
+  function openPkgPage(){
+    document.getElementById('pkgPage').classList.add('show');
+    document.body.style.overflow = 'hidden';
+    document.getElementById('pkgFilter').value = '';
+    if (!allPkgs.length) loadPackages(); else applyFilter();
+  }
+  function closePkgPage(){
+    document.getElementById('pkgPage').classList.remove('show');
+    document.body.style.overflow = '';
+  }
+
+  function applyScoop(closeAfter){
     var el = document.getElementById('scoopResult');
     if (!BRIDGE){ el.className = 'result bad'; el.textContent = '未检测到 KernelSU 接口'; return; }
     var pkgs = [];
-    for (var i=0;i<pkgRowEls.length;i++) if (pkgRowEls[i].cb.checked) pkgs.push(pkgRowEls[i].name);
+    for (var k in selSet) if (selSet[k]) pkgs.push(k);
     pkgs.sort();
     if (!pkgs.length && !confirm('没有勾选任何包，确定把 scoop 写入为空数组？')) return;
     el.className = 'result muted';
@@ -527,18 +616,21 @@
       el.textContent = '✓ 已写入 ' + pkgs.length + ' 个包名（watcher 自动生效，无需重启）';
       toast('scoop 已更新');
       setStatus('injector.toml 已更新 · ' + new Date().toLocaleTimeString());
+      if (closeAfter) closePkgPage();
     }).catch(function(e){
       el.className = 'result bad';
       el.textContent = '✗ 失败：' + (e && e.message ? e.message : e);
     });
   }
 
-  document.getElementById('pkgRefresh').addEventListener('click', loadPackages);
+  document.getElementById('openPkgPage').addEventListener('click', openPkgPage);
+  document.getElementById('pkgBack').addEventListener('click', closePkgPage);
   document.getElementById('pkgFilter').addEventListener('input', applyFilter);
-  document.getElementById('pkgAll').addEventListener('click', function(){ eachVisible(function(r){ r.cb.checked = true; }); updateScoopCount(); });
-  document.getElementById('pkgInvert').addEventListener('click', function(){ eachVisible(function(r){ r.cb.checked = !r.cb.checked; }); updateScoopCount(); });
-  document.getElementById('pkgClear').addEventListener('click', function(){ for (var i=0;i<pkgRowEls.length;i++) pkgRowEls[i].cb.checked = false; updateScoopCount(); });
-  document.getElementById('scoopApply').addEventListener('click', applyScoop);
+  document.getElementById('pkgAll').addEventListener('click', function(){ eachVisible(function(r){ selSet[r.pkg] = true; syncRow(r); }); updateSelCount(); });
+  document.getElementById('pkgInvert').addEventListener('click', function(){ eachVisible(function(r){ if (selSet[r.pkg]) delete selSet[r.pkg]; else selSet[r.pkg] = true; syncRow(r); }); updateSelCount(); });
+  document.getElementById('pkgClear').addEventListener('click', function(){ for (var i=0;i<appRowEls.length;i++){ delete selSet[appRowEls[i].pkg]; syncRow(appRowEls[i]); } updateSelCount(); });
+  document.getElementById('scoopApply').addEventListener('click', function(){ applyScoop(false); });
+  document.getElementById('scoopApply2').addEventListener('click', function(){ applyScoop(true); });
 
   /* ===== 添加密钥 / keybox.xml ===== */
   var KB_DIR = '/data/misc/keystore/ko_bing';
