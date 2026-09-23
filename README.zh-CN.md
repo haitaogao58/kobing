@@ -1,6 +1,6 @@
 # Ko Bing
 
-[English](README.md) | **简体中文**
+[English](README.md) | **简体中文** | [繁體中文](README.zh-TW.md)
 
 [![Telegram](https://img.shields.io/static/v1?label=Telegram&message=@kobing_hide&color=0088cc)](https://t.me/kobing_hide)  [![CI Build](https://github.com/haitaogao58/kobing/actions/workflows/ci.yml/badge.svg)](https://github.com/haitaogao58/kobing/actions/workflows/ci.yml)
 
@@ -22,7 +22,7 @@ Android Keystore Spoofer 的自定义 keystore 实现（中文说明）
 
 1. 刷入本模块。
 
-2. 如有需要，[配置 KOBING](docs/CONFIGURATION.md)。
+2. 如有需要，[配置 KOBING](docs/CONFIGURATION.zh-CN.md)。
 
 3. 替换模板 keybox.xml（如果需要）。
 
@@ -34,7 +34,7 @@ keybox 文件必须是**合法的** XML，且同时包含 EC 与 RSA 证书链�
 - `/data/surprise/injector.toml`
 - 包名允许清单 `/data/surprise/bm.txt`
 
-完整的带注释示例、逐字段说明、安全须知与重启要求，请阅读[配置指南](docs/CONFIGURATION.md)。
+完整的带注释示例、逐字段说明、安全须知与重启要求，请阅读[配置指南](docs/CONFIGURATION.zh-CN.md)。
 
 ## 重启 keymint 与 injector
 
@@ -46,7 +46,7 @@ touch /data/surprise/waste/restart.injector
 touch /data/surprise/waste/restart.all
 ```
 
-哪些改动需要重启组件、哪些需要整机重启，见[配置指南](docs/CONFIGURATION.md#how-changes-are-loaded)。
+哪些改动需要重启组件、哪些需要整机重启，见[配置指南](docs/CONFIGURATION.zh-CN.md#改动如何被加载)。
 
 ## 许可证
 

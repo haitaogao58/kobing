@@ -1,4 +1,5 @@
 # Configuration Guide
+**English** | [简体中文](CONFIGURATION.zh-CN.md) | [繁體中文](CONFIGURATION.zh-TW.md)
 
 KoBing (KOBING) uses three active configuration files:
 
