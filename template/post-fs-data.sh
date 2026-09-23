@@ -7,7 +7,10 @@ TARGET_INJECTOR_CONFIG=$BASE_DIR/injector.toml
 STATE_DIR=$WASTE_DIR
 
 mkdir -p "$BASE_DIR"
-chmod 0600 "$BASE_DIR"
+# Restrict the top-level directory to the keystore user. The execute bit MUST
+# remain set, otherwise the module cannot traverse into /data/surprise.
+chown 1017:1017 "$BASE_DIR"
+chmod 0700 "$BASE_DIR"
 
 mkdir -p "$WASTE_DIR"
 chmod 0770 "$WASTE_DIR"
