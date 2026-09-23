@@ -23,8 +23,13 @@ rm -f "$STATE_DIR/restart.keymint" "$STATE_DIR/restart.injector" "$STATE_DIR/res
 # Package allow-list (bm.txt). It lives directly in /data/surprise so that the
 # keystore user can read it and the user can edit it with a root file manager.
 BM_FILE=$BASE_DIR/bm.txt
-if [ ! -f "$BM_FILE" ] && [ -f "$MODDIR/bm.txt" ]; then
-  cp "$MODDIR/bm.txt" "$BM_FILE"
+if [ ! -f "$BM_FILE" ]; then
+  for src in "$BASE_DIR/kobing_bm.txt" "$MODDIR/bm.txt"; do
+    if [ -f "$src" ]; then
+      cp -a "$src" "$BM_FILE"
+      break
+    fi
+  done
 fi
 if [ -f "$BM_FILE" ]; then
   chmod 0644 "$BM_FILE"

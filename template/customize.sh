@@ -96,19 +96,39 @@ chmod 755 "$BINDIR/keymint" "$BINDIR/inject"
 BASE_DIR=/data/surprise
 WASTE_DIR=$BASE_DIR/waste
 STATE_DIR=$WASTE_DIR
+OLD_KS_DIR=/data/misc/keystore/ko_bing
+OLD_ADB_DIR=/data/adb/ko_bing
 
-mkdir -p "$BASE_DIR" "$STATE_DIR"
+mkdir -p "$BASE_DIR" "$WASTE_DIR"
+
+# One-time migration from the legacy split layout. Best effort only: never
+# overwrite a file that already exists at the new location.
+[ -f "$OLD_KS_DIR/keybox.xml" ]    && [ ! -f "$BASE_DIR/keybox.xml" ]    && cp -a "$OLD_KS_DIR/keybox.xml"    "$BASE_DIR/keybox.xml"
+[ -f "$OLD_KS_DIR/injector.toml" ] && [ ! -f "$BASE_DIR/injector.toml" ] && cp -a "$OLD_KS_DIR/injector.toml" "$BASE_DIR/injector.toml"
+for entry in data logs config.toml config.toml.bak config.toml.bak2 crash_count; do
+  if [ -e "$OLD_KS_DIR/$entry" ] && [ ! -e "$WASTE_DIR/$entry" ]; then
+    cp -a "$OLD_KS_DIR/$entry" "$WASTE_DIR/$entry"
+  fi
+done
+
 rm -f "$STATE_DIR/restart.keymint" "$STATE_DIR/restart.injector" "$STATE_DIR/restart.all"
 rm -f "$STATE_DIR/keymint" "$STATE_DIR/inject" "$STATE_DIR/injector" # clean up old hot-update binaries
 
-# Clean up the legacy /data/adb/ko_bing layout.
-rm -rf /data/adb/ko_bing
-
-# Seed the package allow-list directly into /data/surprise.
+# Seed the package allow-list directly into /data/surprise: migrate any legacy
+# entity first, then fall back to the packaged default.
 BM_FILE=$BASE_DIR/bm.txt
-if [ ! -f "$BM_FILE" ] && [ -f "$MODPATH/bm.txt" ]; then
-  cp "$MODPATH/bm.txt" "$BM_FILE"
+if [ ! -f "$BM_FILE" ]; then
+  for src in "$OLD_ADB_DIR/kobing_bm.txt" "$OLD_ADB_DIR/bm.txt" "$BASE_DIR/kobing_bm.txt" "$MODPATH/bm.txt"; do
+    if [ -f "$src" ]; then
+      cp -a "$src" "$BM_FILE"
+      break
+    fi
+  done
 fi
+
+# Clean up the legacy /data/adb/ko_bing layout only after migration is done.
+rm -rf "$OLD_ADB_DIR"
+
 if [ -f "$BM_FILE" ]; then
   chmod 0644 "$BM_FILE"
 fi
