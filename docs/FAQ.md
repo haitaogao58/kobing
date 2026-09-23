@@ -107,15 +107,18 @@ The active files are:
 
 - `/data/misc/keystore/ko_bing/config.toml`
 - `/data/misc/keystore/ko_bing/injector.toml`
+- `/data/surprise/kobing_bm.txt`
 
 Edit the active files, not the copies inside the module ZIP. Make a backup
 first and use a root-capable editor that preserves the files correctly.
 The [Configuration Guide](CONFIGURATION.md) explains every field and when each
 kind of change takes effect.
 
-### What is `scoop`?
+### What is `bm.txt`?
 
-`scoop` is the list of app package names that may use KOBING. A package name looks
+`bm.txt` is the list of app package names that may use KOBING. It is a plain text
+file, one exact package name per line, stored at `/data/surprise/kobing_bm.txt`
+(with a convenience symlink at `/data/adb/ko_bing/kobing_bm.txt`). A package name looks
 like `com.example.app`; it is not the name shown under the app icon. It must be
 entered exactly.
 
@@ -129,7 +132,7 @@ Play services, Play Store, and two common test apps. Also, a few related apps
 share one Android identity, so selecting one can affect another app in the
 same group.
 
-The active `injector.toml` is authoritative and is not replaced during an
+The active `bm.txt` is authoritative and is not replaced during an
 update.
 
 ### Can I enable KOBING for every app?
@@ -258,7 +261,7 @@ encrypted app data unreadable, or force identity verification.
 Only reset it when you deliberately accept those consequences and have already
 made a private backup. Resetting all stored keys is not a general repair step.
 
-### Why did an app lose a key after I added it to or removed it from `scoop`?
+### Why did an app lose a key after I added it to or removed it from `bm.txt`?
 
 Normal System keys and KOBING keys are kept separately. Moving an app between the
 two services does not copy its existing keys. The app may then report a missing key,
@@ -279,7 +282,7 @@ Check these in order:
    testing.
 2. Confirm that the device is in the supported Android and architecture range.
 3. Keep the default safety filters and do not run another KeyStore replacement.
-4. Confirm the exact app package is in the active `scoop` list.
+4. Confirm the exact app package is in the active `bm.txt` list.
 5. Reboot after installation or a module update.
 6. Reproduce the problem once, then inspect the fresh injector and keymint
    logs from that same time.
@@ -308,7 +311,7 @@ Confirm the app's package, routing log, and keybox log from the same test. KOBIN
 cannot restore factory hardware provisioning if the device's real TEE is
 actually damaged.
 
-### Why does an app work outside `scoop` but fail inside it?
+### Why does an app work outside `bm.txt` but fail inside it?
 
 The app may be trying to use a System key that KOBING does not have, or it may
 depend on behavior outside Android's standard KeyStore rules. First account
@@ -324,7 +327,7 @@ KOBING does not hide root. A warning can come from an app's own root detection,
 package checks, system-property checks, a blocked certificate, or another
 module. Passing a key-attestation test does not cancel those checks.
 
-If the warning is identical with the app removed from `scoop`, investigate the
+If the warning is identical with the app removed from `bm.txt`, investigate the
 rest of the root setup. If it appears only when KOBING handles the app, provide a
 routed and unrouted comparison from the same app and build.
 
@@ -402,7 +405,8 @@ same time, not just an isolated word such as `ERROR`.
 
 ### What should I do if Android cannot unlock or the user interface does not start?
 
-Restore the default `injector.toml`, especially the app list and safety filter,
+Restore the default `injector.toml` and `bm.txt`, especially the app list and
+safety filter,
 then reboot. If you allowed Android packages, system services, or unknown
 callers, undo that change first.
 

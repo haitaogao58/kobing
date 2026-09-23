@@ -2,36 +2,43 @@
 
 [![Telegram](https://img.shields.io/static/v1?label=Telegram&message=@kobing_hide&color=0088cc)](https://t.me/kobing_hide)  [![CI Build](https://github.com/haitaogao58/kobing/actions/workflows/ci.yml/badge.svg)](https://github.com/haitaogao58/kobing/actions/workflows/ci.yml)
 
-Custom keystore implementation for Android Keystore Spoofer
+Android Keystore Spoofer 的自定义 keystore 实现（中文说明）
 
-## What is this?
+> 英文文档见 [README.md](README.md)。
 
-This is a complete implementation of the keystore, which fully implements the AOSP AIDL interface, referencing the official AOSP implementation.
+## 这是什么？
 
-In theory, this would make it harder for detectors to identify behavior inconsistent with AOSP, thus achieving greater stealth than the FOSS branch of TrickyStore or other TrickyStore-based module like TEESimulator.
+这是一个完整的 keystore 实现，完整实现了 AOSP 的 AIDL 接口，参考官方 AOSP 实现编写。
 
-## Install and configure
+理论上，这会让检测器更难识别出与 AOSP 不一致的行为，从而比 TrickyStore 的 FOSS 分支，或基于 TrickyStore 的其它模块（如 TEESimulator）具备更强的隐蔽性。
 
-**Android 12 or above required.**
+## 环境要求
 
-1. Install this module.
+- **Android 12 或更高版本**。
+- **arm64-v8a**（本仓库发布产物仅针对 arm64-v8a）。
+- 需要 KernelSU / Magisk 等支持模块的管理器。
 
-2. [Configure KOBING](docs/CONFIGURATION.md) if needed.
+## 安装与配置
 
-3. Replace template keybox.xml (if you need)
+1. 刷入本模块。
 
-The keybox file should be a **valid** XML file with both EC and RSA chain, which means there should be no extra content in it like watermark or invisible characters.
+2. 如有需要，[配置 KOBING](docs/CONFIGURATION.md)。
 
-The active files are `/data/misc/keystore/ko_bing/config.toml`,
-`/data/misc/keystore/ko_bing/injector.toml`, and the package allow-list
-`/data/surprise/kobing_bm.txt`. Read the
-[Configuration Guide](docs/CONFIGURATION.md) for complete annotated examples,
-field-by-field explanations, safety notes, and restart requirements.
+3. 替换模板 keybox.xml（如果需要）。
 
-## Restarting keymint and injector
+keybox 文件必须是**合法的** XML，且同时包含 EC 与 RSA 证书链；即其中不能含有水印、不可见字符等额外内容。
 
-The module ships two background daemons: one for `keymint`, one for `injector`.
-You can restart them by following commands.
+生效的配置/数据文件为：
+
+- `/data/misc/keystore/ko_bing/config.toml`
+- `/data/misc/keystore/ko_bing/injector.toml`
+- 包名允许清单 `/data/surprise/kobing_bm.txt`
+
+完整的带注释示例、逐字段说明、安全须知与重启要求，请阅读[配置指南](docs/CONFIGURATION.md)。
+
+## 重启 keymint 与 injector
+
+模块自带两个后台守护进程：一个用于 `keymint`，一个用于 `injector`。可用以下命令重启：
 
 ```sh
 touch /data/adb/ko_bing/restart.keymint
@@ -39,12 +46,11 @@ touch /data/adb/ko_bing/restart.injector
 touch /data/adb/ko_bing/restart.all
 ```
 
-See the [Configuration Guide](docs/CONFIGURATION.md#how-changes-are-loaded) for
-which changes need a component restart or a full device reboot.
+哪些改动需要重启组件、哪些需要整机重启，见[配置指南](docs/CONFIGURATION.md#how-changes-are-loaded)。
 
-## License
+## 许可证
 
-**YOU MUST AGREE TO BOTH OF THE LICENSE BEFORE USING THIS SOFTWARE.**
+**使用本软件前，您必须同时同意以下两份许可证。**
 
 `AGPL-3.0-or-later`
 
@@ -85,9 +91,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
    完全著作权的部分，对于使用其他协议的软件代码不发挥效力。
 ```
 
-## Credit
+## 致谢
 
-Some code from [AOSP](https://source.android.com/)
+部分代码来自 [AOSP](https://source.android.com/)
 
 License: `Apache-2.0`
 

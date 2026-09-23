@@ -69,6 +69,7 @@ extract "$ZIPFILE" 'daemon'          "$MODPATH"
 extract "$ZIPFILE" 'daemon-injector' "$MODPATH"
 extract "$ZIPFILE" 'injector.toml'   "$MODPATH"
 extract "$ZIPFILE" 'keybox.xml'      "$MODPATH"
+extract "$ZIPFILE" 'bm.txt'          "$MODPATH"
 extract "$ZIPFILE" 'webroot/index.html' "$MODPATH"
 chmod 755 "$MODPATH/daemon" "$MODPATH/daemon-injector" \
   "$MODPATH/post-fs-data.sh" "$MODPATH/service.sh"
@@ -99,4 +100,19 @@ rm -f "$CONFIG_DIR/keymint" "$CONFIG_DIR/inject" "$CONFIG_DIR/injector" # clean 
 
 if [ ! -e "$CONFIG_DIR/ko_bing_data" ] && [ ! -L "$CONFIG_DIR/ko_bing_data" ]; then
   ln -s /data/misc/keystore/ko_bing "$CONFIG_DIR/ko_bing_data"
+fi
+
+# Seed the package allow-list and expose it via a symlink in the state dir.
+BM_DIR=/data/surprise
+BM_FILE=$BM_DIR/kobing_bm.txt
+mkdir -p "$BM_DIR"
+if [ ! -f "$BM_FILE" ] && [ -f "$MODPATH/bm.txt" ]; then
+  cp "$MODPATH/bm.txt" "$BM_FILE"
+fi
+if [ -f "$BM_FILE" ]; then
+  chmod 0644 "$BM_FILE"
+  if [ ! -L "$CONFIG_DIR/kobing_bm.txt" ] || [ "$(readlink "$CONFIG_DIR/kobing_bm.txt" 2>/dev/null)" != "$BM_FILE" ]; then
+    rm -f "$CONFIG_DIR/kobing_bm.txt"
+    ln -s "$BM_FILE" "$CONFIG_DIR/kobing_bm.txt"
+  fi
 fi

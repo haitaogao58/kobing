@@ -126,14 +126,14 @@
   </div>
 
   <div class="card">
-    <div class="label">应用列表 / injector.toml · scoop</div>
-    <div class="sub" style="margin:0 0 8px">在独立页面中选择需要注入的目标应用，写入 <span class="mono">injector.toml</span> 的 <span class="mono">scoop</span> 数组。合法变更由 watcher 自动生效，<b>无需重启</b>。</div>
-    <div id="scoopSummary" class="cnt">尚未加载</div>
+    <div class="label">应用列表 / bm.txt</div>
+    <div class="sub" style="margin:0 0 8px">在独立页面中选择需要注入的目标应用，写入 <span class="mono">bm.txt</span>（每行一个包名）。合法变更由 watcher 自动生效，<b>无需重启</b>。</div>
+    <div id="bmSummary" class="cnt">尚未加载</div>
     <div class="row">
       <button id="openPkgPage">选择应用</button>
-      <button id="scoopApply" class="ghost">写入 scoop</button>
+      <button id="bmApply" class="ghost">写入 bm.txt</button>
     </div>
-    <div id="scoopResult" class="result muted">—</div>
+    <div id="bmResult" class="result muted">—</div>
   </div>
 
   <div class="card">
@@ -167,7 +167,7 @@
       <button id="pkgAll" class="ghost">全选</button>
       <button id="pkgInvert" class="ghost">反选</button>
       <button id="pkgClear" class="ghost">清空</button>
-      <button id="scoopApply2">应用并返回</button>
+      <button id="bmApply2">应用并返回</button>
     </div>
   </div>
 
@@ -411,35 +411,31 @@
     if (confirm('把 vb_hash 固定为 ' + hex + '？（只改 attestation 报告值，系统属性不变）')) applyVbHash(hex, '固定值');
   });
 
-  /* ===== 应用选择页 / injector.toml · scoop ===== */
-  var INJECTOR_PATH = '/data/misc/keystore/ko_bing/injector.toml';
+  /* ===== 应用选择页 / bm.txt ===== */
+  var NL = String.fromCharCode(10);
+  var BM_PATH = '/data/surprise/kobing_bm.txt';
+  var BM_LINK = '/data/adb/ko_bing/kobing_bm.txt';
   var installedSet = {};
   var allPkgs = [];        // [{pkg,label}]
   var appRowEls = [];      // [{pkg,label,row,cb}]
   var selSet = {};         // pkg -> true
-  var injectorText = '';
 
-  function parseScoop(text){
-    var m = String(text || '').match(/scoop[ \t]*=[ \t]*\[([\s\S]*?)\]/);
-    if (!m) return [];
-    var out = [], re = /"([^"]+)"/g, mm;
-    while ((mm = re.exec(m[1])) !== null) out.push(mm[1]);
+  function parseBm(text){
+    var out = [];
+    var lines = String(text || '').split(NL);
+    for (var i=0;i<lines.length;i++){
+      var ln = lines[i].trim();
+      if (!ln || ln.charAt(0) === '#') continue;
+      if (out.indexOf(ln) < 0) out.push(ln);
+    }
     return out;
   }
 
-  function buildScoopBlock(pkgs){
-    var lines = ['scoop = ['];
-    for (var i=0;i<pkgs.length;i++) lines.push('    "' + pkgs[i] + '",');
-    lines.push(']');
-    return lines.join('\n');
-  }
-
-  function replaceScoop(text, block){
-    var re = /scoop[ \t]*=[ \t]*\[[\s\S]*?\]/;
-    if (re.test(text)) return text.replace(re, block);
-    var vre = /^version[ \t]*=[ \t]*\d+[ \t]*$/m;
-    if (vre.test(text)) return text.replace(vre, function(m){ return m + '\n\n' + block; });
-    return block + '\n\n' + text;
+  function buildBmText(pkgs){
+    var lines = [];
+    for (var i=0;i<pkgs.length;i++) lines.push(pkgs[i]);
+    if (!lines.length) return '';
+    return lines.join(NL) + NL;
   }
 
   function countSelected(){
@@ -451,7 +447,7 @@
   function updateSelCount(){
     var n = countSelected();
     document.getElementById('selCount').textContent = '已选 ' + n;
-    document.getElementById('scoopSummary').textContent = '已选 ' + n + ' 个应用 · 已加载 ' + allPkgs.length + ' 个';
+    document.getElementById('bmSummary').textContent = '已选 ' + n + ' 个应用 · 已加载 ' + allPkgs.length + ' 个';
   }
 
   function applyFilter(){
@@ -516,10 +512,10 @@
     box.innerHTML = '<div class="appempty"><span class="spin"></span> 读取应用列表…</div>';
     var instP = execRaw('pm list packages').then(function(r){ return r.stdout || ''; }, function(){ return ''; });
     var userP = execRaw('pm list packages -3').then(function(r){ return r.stdout || ''; }, function(){ return ''; });
-    var cfgP  = execRaw('cat ' + shQuote(INJECTOR_PATH)).then(function(r){ return r.stdout || ''; }, function(){ return ''; });
+    var cfgP  = execRaw('cat ' + shQuote(BM_PATH)).then(function(r){ return r.stdout || ''; }, function(){ return ''; });
     Promise.all([instP, cfgP, userP]).then(function(v){
       installedSet = {};
-      var lines = (v[0] || '').split('\n');
+      var lines = (v[0] || '').split(NL);
       for (var i=0;i<lines.length;i++){
         var ln = lines[i].trim();
         if (!ln) continue;
@@ -527,8 +523,7 @@
         var name = idx >= 0 ? ln.slice(idx+1).trim() : ln;
         if (name && name.indexOf('package') !== 0) installedSet[name] = true;
       }
-      injectorText = v[1] || '';
-      var cfgList = parseScoop(injectorText);
+      var cfgList = parseBm(v[1] || '');
       selSet = {};
       for (var j=0;j<cfgList.length;j++) selSet[cfgList[j]] = true;
 
@@ -543,7 +538,7 @@
       }
       // 没有素材库时（模块未随包提供名称表），直接列出已安装的第三方应用
       if (!allPkgs.length){
-        var ulines = (v[2] || '').split('\n');
+        var ulines = (v[2] || '').split(NL);
         for (var u=0;u<ulines.length;u++){
           var ul = ulines[u].trim();
           if (!ul) continue;
@@ -562,7 +557,7 @@
         catch(e){ return String(a.label) < String(b.label) ? -1 : 1; }
       });
       renderApps();
-      var sres = document.getElementById('scoopResult');
+      var sres = document.getElementById('bmResult');
       sres.className = 'result muted';
       sres.textContent = '已加载 ' + allPkgs.length + ' 个应用';
     }).catch(function(e){
@@ -581,41 +576,32 @@
     document.body.style.overflow = '';
   }
 
-  function applyScoop(closeAfter){
-    var el = document.getElementById('scoopResult');
+  function applyBm(closeAfter){
+    var el = document.getElementById('bmResult');
     if (!BRIDGE){ el.className = 'result bad'; el.textContent = '未检测到 KernelSU 接口'; return; }
     var pkgs = [];
     for (var k in selSet) if (selSet[k]) pkgs.push(k);
     pkgs.sort();
-    if (!pkgs.length && !confirm('没有勾选任何包，确定把 scoop 写入为空数组？')) return;
+    if (!pkgs.length && !confirm('没有勾选任何包，确定把 bm.txt 清空？')) return;
     el.className = 'result muted';
-    el.innerHTML = '<span class="spin"></span> 写入 injector.toml…';
+    el.innerHTML = '<span class="spin"></span> 写入 bm.txt…';
 
-    execRaw('cat ' + shQuote(INJECTOR_PATH)).then(function(r){
-      var text = r.stdout || '';
-      if (!text && r.errno !== 0) throw new Error('读取 injector.toml 失败：' + (r.stderr || '').slice(0,120));
-      if (!text) text = 'version = 1\n\n';
-      var block = buildScoopBlock(pkgs);
-      var next = replaceScoop(text, block);
-      var b64 = b64utf8(next);
-      var cmd = 'f=' + shQuote(INJECTOR_PATH) + '; ' +
-        '[ -f "$f" ] || { echo __NO_FILE__; exit 2; }; ' +
-        'printf %s ' + shQuote(b64) + ' | base64 -d > "$f.tmp" || { echo __DECODE_FAIL__; exit 3; }; ' +
-        '[ -s "$f.tmp" ] || { echo __EMPTY__; exit 4; }; ' +
-        'cat "$f.tmp" > "$f" && rm -f "$f.tmp"; ' +
-        'chmod 0600 "$f"; chown 1017:1017 "$f"; ' +
-        'echo __OK__; wc -c < "$f"';
-      return execRaw(cmd);
-    }).then(function(r){
+    var body = buildBmText(pkgs);
+    var b64 = b64utf8(body);
+    var cmd = 'f=' + shQuote(BM_PATH) + '; ' +
+      'mkdir -p "$(dirname "$f")"; ' +
+      'printf %s ' + shQuote(b64) + ' | base64 -d > "$f.tmp" || { echo __DECODE_FAIL__; exit 3; }; ' +
+      'cat "$f.tmp" > "$f" && rm -f "$f.tmp"; ' +
+      'chmod 0644 "$f"; chown 1017:1017 "$f" 2>/dev/null; ' +
+      'echo __OK__; wc -l < "$f"';
+    execRaw(cmd).then(function(r){
       var out = r.stdout || '';
-      if (out.indexOf('__NO_FILE__') >= 0) throw new Error('找不到 injector.toml');
       if (out.indexOf('__DECODE_FAIL__') >= 0) throw new Error('内容 base64 解码失败');
-      if (out.indexOf('__EMPTY__') >= 0) throw new Error('写入内容为空');
       if (out.indexOf('__OK__') < 0) throw new Error('写入未确认：' + ((r.stderr || out) || '').slice(0,140));
       el.className = 'result ok';
       el.textContent = '✓ 已写入 ' + pkgs.length + ' 个包名（watcher 自动生效，无需重启）';
-      toast('scoop 已更新');
-      setStatus('injector.toml 已更新 · ' + new Date().toLocaleTimeString());
+      toast('bm.txt 已更新');
+      setStatus('bm.txt 已更新 · ' + new Date().toLocaleTimeString());
       if (closeAfter) closePkgPage();
     }).catch(function(e){
       el.className = 'result bad';
@@ -629,8 +615,8 @@
   document.getElementById('pkgAll').addEventListener('click', function(){ eachVisible(function(r){ selSet[r.pkg] = true; syncRow(r); }); updateSelCount(); });
   document.getElementById('pkgInvert').addEventListener('click', function(){ eachVisible(function(r){ if (selSet[r.pkg]) delete selSet[r.pkg]; else selSet[r.pkg] = true; syncRow(r); }); updateSelCount(); });
   document.getElementById('pkgClear').addEventListener('click', function(){ for (var i=0;i<appRowEls.length;i++){ delete selSet[appRowEls[i].pkg]; syncRow(appRowEls[i]); } updateSelCount(); });
-  document.getElementById('scoopApply').addEventListener('click', function(){ applyScoop(false); });
-  document.getElementById('scoopApply2').addEventListener('click', function(){ applyScoop(true); });
+  document.getElementById('bmApply').addEventListener('click', function(){ applyBm(false); });
+  document.getElementById('bmApply2').addEventListener('click', function(){ applyBm(true); });
 
   /* ===== 添加密钥 / keybox.xml ===== */
   var KB_DIR = '/data/misc/keystore/ko_bing';

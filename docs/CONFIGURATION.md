@@ -1,30 +1,33 @@
 # Configuration Guide
 
-KoBing (KOBING) uses two active configuration files:
+KoBing (KOBING) uses three active configuration files:
 
 - `/data/misc/keystore/ko_bing/config.toml` controls the KeyMint service, the
   identity it reports, and the secrets used for KOBING-created keys.
-- `/data/misc/keystore/ko_bing/injector.toml` selects which apps use KOBING and which
-  KeyStore requests are routed to it.
+- `/data/misc/keystore/ko_bing/injector.toml` selects which KeyStore requests are
+  routed to KOBING.
+- `/data/surprise/kobing_bm.txt` lists the app packages that may use KOBING. The
+  module also exposes it as a convenience symlink at `/data/adb/ko_bing/kobing_bm.txt`.
 
 This guide describes the active configuration used by the current build. The
 examples are followed by a separate field-by-field reference so that the short
 comments in the examples are not the only explanation.
 
-**Jump to:** [`config.toml`](#configtoml) | [`injector.toml`](#injectortoml)
+**Jump to:** [`config.toml`](#configtoml) | [`injector.toml`](#injectortoml) | [`bm.txt`](#bmtxt)
 
 ## Before editing
 
-For ordinary use, the only setting that normally needs changing is `scoop` in
-`injector.toml`. Keep the safety filters, all `[intercept]` switches, and the
-generated `[crypto]` values unchanged.
+For ordinary use, the only setting that normally needs changing is the package
+allow-list in `bm.txt`. Keep `injector.toml`, the safety filters, all
+`[intercept]` switches, and the generated `[crypto]` values unchanged.
 
 Before making a change:
 
-1. Make a private backup of both active files.
-2. Edit the files under `/data/misc/keystore/ko_bing/`, not copies in the module ZIP.
-3. Keep strings inside quotes, booleans as `true` or `false`, and package names
-   inside the `scoop = [...]` array.
+1. Make a private backup of all active files.
+2. Edit the files under `/data/misc/keystore/ko_bing/` and
+   `/data/surprise/kobing_bm.txt`, not copies in the module ZIP.
+3. Keep strings inside quotes, booleans as `true` or `false`, and put package
+   names in `bm.txt`, one exact package name per line.
 4. Change one thing at a time, save the complete file, and check the matching
    log after the change.
 
@@ -36,7 +39,7 @@ unredacted copy of either active file.
 Both components watch their active file for valid changes. Their behavior is
 not identical:
 
-- A valid `injector.toml` is applied to new requests without a reboot.
+- A valid `injector.toml` or `bm.txt` is applied to new requests without a reboot.
 - A valid `config.toml` is read automatically, but only the four patch-level
   fields and the biometric compatibility switch can take full effect without
   restarting keymint. The field reference below states when a restart is
@@ -422,14 +425,8 @@ empty value is valid. Its absence does not invalidate an available IMEI.
 # Configuration format. Keep this at 1.
 version = 1
 
-# Exact package names allowed to use KOBING; no wildcards are supported.
-scoop = [
-  "io.github.vvb2060.keyattestation",
-  "com.google.android.gsf",
-  "com.google.android.gms",
-  "com.android.vending",
-  "com.eltavine.duckdetector",
-]
+# The package allow-list is not stored here anymore. It lives in bm.txt; see
+# the bm.txt section below for its path, format, and rules.
 
 [main]
 # Master switch for request routing. Keep true for normal use.
@@ -438,9 +435,9 @@ enabled = true
 log_level = "debug"
 
 [filter]
-# Enforce scoop and the safety rules below.
+# Enforce the bm.txt allow-list and the safety rules below.
 enabled = true
-# Packages that must never use KOBING, even if another shared package is in scoop.
+# Packages that must never use KOBING, even if another shared package is allowed.
 deny_packages = []
 # Block core Android and system identities. Keep true.
 block_android_package = true
@@ -478,24 +475,11 @@ If a documented injector field is omitted, its default value is used. Unknown
 fields in the documented top-level and named sections are rejected, so do not
 add names that are not described in this guide.
 
-#### `scoop`
+#### Package allow-list
 
-This array contains exact Android package names that may use KOBING. It does not
-accept app labels, partial names, or wildcards. Empty entries are removed,
-surrounding spaces are trimmed, and duplicate entries are reduced to one when
-the file is loaded.
-
-Android can assign several packages the same identity. In that case, listing
-any one of those packages allows the shared identity, unless a filter rule
-rejects one of the packages in the group. Adding or removing a package does not
-move or convert keys between System and KOBING; an app may lose access to keys it
-created through the other route.
-
-There is one narrow granted-key exception. An app outside `scoop`, or one whose
-package name cannot be resolved, can still use a key-access grant that KOBING
-confirms belongs to an KOBING key. This keeps a key deliberately shared by another
-app usable without giving the receiving app general KOBING access. Android-blocked
-and deny-listed callers do not receive this exception.
+`injector.toml` no longer stores the package allow-list. The exact package names
+that may use KOBING are kept in a separate file, `bm.txt`. See the `bm.txt`
+section below for its path, format, and rules.
 
 ### `[main]`
 
@@ -528,19 +512,19 @@ With the filter enabled, KOBING evaluates a caller in this order:
    `block_android_package = true`.
 2. If its package names cannot be resolved, follow `allow_unknown_package`.
 3. Reject the whole identity if any resolved package is in `deny_packages`.
-4. Reject it if none of its resolved packages is in `scoop`.
+4. Reject it if none of its resolved packages is listed in `bm.txt`.
 5. Otherwise allow it to use the enabled `[intercept]` routes.
 
 This order matters for packages that share an Android identity: a deny rule
-wins over a matching entry in `scoop`.
+wins over a matching entry in `bm.txt`.
 
 After this normal filter decision, the narrow KOBING-owned grant exception
-described under `scoop` can preserve access for an unknown or out-of-scope app.
+described in the `bm.txt` section can preserve access for an unknown or out-of-scope app.
 It does not override the Android-package block or `deny_packages`.
 
 #### `enabled`
 
-`true` enforces `scoop`, the deny list, the Android-package block, and the
+`true` enforces the `bm.txt` allow-list, the deny list, the Android-package block, and the
 unknown-package policy. `false` bypasses all four checks and allows every
 caller to reach any operation enabled under `[intercept]`.
 
@@ -552,14 +536,14 @@ can break unlocking, app storage, or the user interface. Keep it `true`.
 This is an array of exact package names that must not use KOBING. It is useful
 when a selected package shares its Android identity with another package that
 must stay on System. If any package resolved for the identity is denied, the
-entire identity is rejected even when another package is listed in `scoop`.
+entire identity is rejected even when another package is listed in `bm.txt`.
 
-An empty array, `[]`, is the default. The list uses the same quoted,
-comma-separated TOML format as `scoop`.
+An empty array, `[]`, is the default. The list uses quoted, comma-separated
+TOML syntax; it is unrelated to the separate `bm.txt` allow-list.
 
 #### `block_android_package`
 
-`true` rejects core Android and system identities before `scoop` is considered.
+`true` rejects core Android and system identities before `bm.txt` is considered.
 It also rejects resolved package names equal to `android` or beginning with
 `android.`. It does not mean that every ordinary app whose name begins with
 `com.android.` is automatically blocked.
@@ -571,7 +555,7 @@ the remaining filter rules still apply.
 
 This controls a caller whose Android package name cannot be resolved. `false`
 rejects that caller, which is the safe default. `true` allows an unresolved app
-identity without requiring a match in `scoop`; core Android identities are
+identity without requiring a match in `bm.txt`; core Android identities are
 still rejected when `block_android_package = true`.
 
 This setting is not an "all apps" switch. Keep it `false` unless a maintainer
@@ -586,7 +570,7 @@ System-created key references usable by KOBING.
 
 The KOBING-owned grant exception is separate from ordinary package routing. A
 request carrying a confirmed KOBING grant may return to KOBING even when the
-receiving app is outside `scoop`, so the granted key remains usable.
+receiving app is outside the `bm.txt` allow-list, so the granted key remains usable.
 
 Keep all switches `true` for normal use. Mixing System and KOBING operations for
 the same app can cause missing-key errors, inconsistent lists, or failed
@@ -643,14 +627,64 @@ requests.
 Per-package tables such as `[scoop.com.example.app]` and values such as
 `mode = "strict"` are not supported routing options. They may be preserved when
 the file is parsed, but they do not change which backend handles a request. Do
-not add them; use `scoop`, `[filter]`, and `[intercept]` instead.
+not add them; use `bm.txt` for the allow-list, and `[filter]` and
+`[intercept]` for routing.
 
 ### `injector.toml` apply summary
 
 Every valid documented field change is loaded for new requests without a
-device reboot. For `scoop`, `[main].enabled`, `[filter]`, or `[intercept]`
-changes, restart the injector and reopen the affected app when you need a clean
-boundary after a route change. A syntax error, an unknown field, or an
+device reboot. For the `bm.txt` allow-list, `[main].enabled`, `[filter]`, or
+`[intercept]` changes, restart the injector and reopen the affected app when you
+need a clean boundary after a route change. A syntax error, an unknown field, or an
 unsupported future `version` leaves the last valid runtime configuration
 active; if present at injector startup, it leaves KOBING request routing disabled
 until the file is corrected.
+
+
+## `bm.txt`
+
+`bm.txt` lists the exact Android package names that may use KOBING. It replaces
+the former `scoop` array that used to live inside `injector.toml`.
+
+### Paths
+
+- Runtime entity: `/data/surprise/kobing_bm.txt`
+- Convenience symlink: `/data/adb/ko_bing/kobing_bm.txt` -> `/data/surprise/kobing_bm.txt`
+
+The injector reads the entity path directly, so it works even though
+`/data/adb` is not readable by the keystore identity. The symlink exists only
+for convenience when browsing or editing from a root shell.
+
+### Format
+
+- One package name per line, for example `com.example.app`.
+- Blank lines and lines whose first non-space character is `#` are ignored.
+- Surrounding spaces are trimmed, and duplicate entries are reduced to one.
+- No app labels, partial names, or wildcards are accepted.
+
+At module install and at every boot the module seeds `bm.txt` from the packaged
+default list if the file is missing, then fixes ownership to `keystore` and mode
+`0644`. Editing the file takes effect for new requests without a reboot; restart
+the injector and reopen the affected app when you need a clean route boundary.
+
+### Default contents
+
+```text
+io.github.vvb2060.keyattestation
+com.google.android.gsf
+com.google.android.gms
+com.android.vending
+com.eltavine.duckdetector
+```
+
+Android can assign several packages the same identity. In that case, listing any
+one of those packages allows the shared identity, unless a filter rule rejects
+one of the packages in the group. Adding or removing a package does not move or
+convert keys between System and KOBING; an app may lose access to keys it created
+through the other route.
+
+There is one narrow granted-key exception. An app outside `bm.txt`, or one whose
+package name cannot be resolved, can still use a key-access grant that KOBING
+confirms belongs to an KOBING key. This keeps a key deliberately shared by
+another app usable without giving the receiving app general KOBING access.
+Android-blocked and deny-listed callers do not receive this exception.

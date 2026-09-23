@@ -45,15 +45,15 @@ State in the pull request what behavior remains unchanged.
 
 ### KOBING routing
 
-- For every request routed by `scoop` with
+- For every request routed by the `bm.txt` allow-list with
   `FilterDecision::allowed == true`, KOBING is the only backend during normal
   reachable operation. Per-method intercept settings still determine whether a
-  request is routed by `scoop`.
+  request is routed by the `bm.txt` allow-list.
 - Choose the backend only from the current caller, filter decision, method, and
   configuration. Do not inspect or infer which backend created a key,
   `KeyDescriptor`, `KEY_ID`, `GRANT`, alias, wrapping key, or attestation key.
 - Per-method intercept settings are authoritative. When interception for a
-  method is disabled, pass the request to System unchanged even when `scoop`
+  method is disabled, pass the request to System unchanged even when the `bm.txt` allow-list
   allows the caller.
 - Do not provide key or descriptor continuity between System and KOBING. Pass old,
   externally supplied, and System-created descriptors to the selected backend

@@ -6,7 +6,7 @@ use kmr_common::runtime::{
 };
 use log::LevelFilter;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -14,6 +14,8 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Duration;
 
 pub const DEFAULT_CONFIG_PATH: &str = "/data/misc/keystore/ko_bing/injector.toml";
+/// Authoritative package allow-list file (one package per line).
+pub const DEFAULT_BM_PATH: &str = "/data/surprise/kobing_bm.txt";
 const CURRENT_CONFIG_VERSION: u32 = 1;
 const REPLACE_SAVE_RETRY_INTERVAL: Duration = Duration::from_millis(100);
 const REPLACE_SAVE_RETRY_LIMIT: usize = 10;
@@ -22,8 +24,10 @@ const REPLACE_SAVE_RETRY_LIMIT: usize = 10;
 #[serde(default, deny_unknown_fields)]
 pub struct InjectorConfig {
     pub version: u32,
+    /// Package allow-list. The authoritative source is `bm.txt` (one package
+    /// per line); the legacy `scoop = [...]` array in `injector.toml` is still
+    /// accepted for migration but is never written back.
     pub scoop: Vec<String>,
-    pub scoop_details: BTreeMap<String, toml::Table>,
     pub main: MainConfig,
     pub filter: FilterConfig,
     pub intercept: InterceptConfig,
@@ -68,7 +72,6 @@ impl Default for InjectorConfig {
         Self {
             version: CURRENT_CONFIG_VERSION,
             scoop: default_scoop(),
-            scoop_details: BTreeMap::new(),
             main: MainConfig::default(),
             filter: FilterConfig::default(),
             intercept: InterceptConfig::default(),
@@ -148,11 +151,7 @@ enum LoadContext {
     Reload(WatchTrigger),
 }
 
-#[derive(Deserialize)]
-struct ScoopHeaderValue {
-    package: String,
-}
-
+ 
 #[derive(Deserialize)]
 struct ConfigVersion {
     version: Option<toml::Spanned<i64>>,
@@ -161,7 +160,6 @@ struct ConfigVersion {
 #[derive(Serialize)]
 struct WritableConfig<'a> {
     version: u32,
-    scoop: &'a [String],
     main: &'a MainConfig,
     filter: &'a FilterConfig,
     intercept: &'a InterceptConfig,
@@ -201,16 +199,64 @@ fn ensure_initialized() {
                 .expect("startup config loading always returns a fallback"),
         ))
     });
-    WATCHER_STARTED.get_or_init(|| start_watcher(path));
+    WATCHER_STARTED.get_or_init(|| {
+        start_watcher(path);
+        start_bm_watcher();
+    });
 }
-
 fn config_path() -> PathBuf {
     std::env::var_os("KOBING_INJECTOR_CONFIG_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_PATH))
 }
+fn bm_path() -> PathBuf {
+    std::env::var_os("KOBING_INJECTOR_BM_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_BM_PATH))
+}
+fn has_legacy_scoop_key(contents: &str) -> bool {
+    contents.lines().any(|line| {
+        let trimmed = line.trim_start();
+        trimmed.starts_with("scoop") && trimmed.contains('=')
+    })
+}
+fn read_bm_packages(path: &Path) -> io::Result<Vec<String>> {
+    let contents = fs::read_to_string(path)?;
+    Ok(contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_string)
+        .collect())
+}
+fn write_bm_packages(path: &Path, packages: &[String]) -> io::Result<()> {
+    let mut contents = String::new();
+    for package in normalize_packages(packages.to_vec()) {
+        contents.push_str(&package);
+        contents.push('\n');
+    }
+    let (default_uid, default_gid) = default_bm_owner(path);
+    atomic_replace_preserving_metadata(path, contents.as_bytes(), 0o644, default_uid, default_gid)
+}
+fn default_bm_owner(path: &Path) -> (u32, u32) {
+    if path == Path::new(DEFAULT_BM_PATH) {
+        (KEYSTORE_UID, KEYSTORE_GID)
+    } else {
+        (unsafe { libc::geteuid() }, unsafe { libc::getegid() })
+    }
+}
 
 fn load_from_path(path: &Path, allow_migration: bool) -> Result<InjectorConfig, LoadError> {
+    load_from_path_with_bm(path, allow_migration, &bm_path())
+}
+
+/// Same as [`load_from_path`] but with an explicit bm.txt path so tests can
+/// isolate the real package allow-list on disk.
+fn load_from_path_with_bm(
+    path: &Path,
+    allow_migration: bool,
+    bm: &Path,
+) -> Result<InjectorConfig, LoadError> {
     let _write_guard = CONFIG_FILE_WRITE_LOCK
         .lock()
         .map_err(|_| LoadError::Io(io::Error::other("config file write lock poisoned")))?;
@@ -221,8 +267,38 @@ fn load_from_path(path: &Path, allow_migration: bool) -> Result<InjectorConfig, 
             LoadError::Io(error)
         }
     })?;
-    let (config, migrated_contents) =
+    let (mut config, migrated_contents) =
         parse_versioned_config(&contents, allow_migration).map_err(LoadError::Parse)?;
+
+    // The package allow-list lives in bm.txt, not in injector.toml.
+    match read_bm_packages(bm) {
+        Ok(packages) => config.scoop = normalize_packages(packages),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            // First run without bm.txt: keep the legacy `scoop` array and seed
+            // bm.txt from it so the package list survives the transition.
+            if config.scoop.is_empty() {
+                config.scoop = default_scoop();
+            }
+            if allow_migration {
+                match write_bm_packages(bm, &config.scoop) {
+                    Ok(()) => log::info!("seeded bm.txt at {}", bm.display()),
+                    Err(write_error) => log::error!(
+                        "failed to seed bm.txt at {}: {}",
+                        bm.display(),
+                        write_error
+                    ),
+                }
+            }
+        }
+        Err(error) => {
+            log::warn!(
+                "failed to read bm.txt at {}: {}; keeping package list from injector.toml",
+                bm.display(),
+                error
+            );
+        }
+    }
+
     if let Some(migrated_contents) = migrated_contents {
         let (default_uid, default_gid) = default_owner(path);
         atomic_replace_preserving_metadata(
@@ -234,6 +310,19 @@ fn load_from_path(path: &Path, allow_migration: bool) -> Result<InjectorConfig, 
         )
         .map_err(LoadError::Io)?;
         log::info!("migrated injector.toml to version {CURRENT_CONFIG_VERSION}");
+    } else if allow_migration && has_legacy_scoop_key(&contents) {
+        // Drop the stale `scoop` array now that packages are read from bm.txt.
+        let cleaned = render_config(&config).map_err(LoadError::Io)?;
+        let (default_uid, default_gid) = default_owner(path);
+        atomic_replace_preserving_metadata(
+            path,
+            cleaned.as_bytes(),
+            0o600,
+            default_uid,
+            default_gid,
+        )
+        .map_err(LoadError::Io)?;
+        log::info!("removed legacy `scoop` array from injector.toml (packages now in bm.txt)");
     }
     Ok(config)
 }
@@ -348,35 +437,21 @@ fn default_owner(path: &Path) -> (u32, u32) {
 
 fn render_config(config: &InjectorConfig) -> io::Result<String> {
     let mut contents = String::from(
-        "# With `[filter].enabled = true`, a UID is intercepted when any package\n\
-         # sharing that UID is listed in `scoop`.\n\
+        "# Package allow-list lives in bm.txt (one package per line).\n\
+         # With `[filter].enabled = true`, a UID is intercepted when any package\n\
+         # sharing that UID is listed there.\n\
          # Filter deny settings still apply to every package resolved for the UID.\n\n",
     );
     let base = toml::to_string_pretty(&WritableConfig {
         version: config.version,
-        scoop: &config.scoop,
         main: &config.main,
         filter: &config.filter,
         intercept: &config.intercept,
     })
     .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     contents.push_str(&base);
-
-    for (package, table) in &config.scoop_details {
-        contents.push('\n');
-        contents.push_str("[scoop.");
-        contents.push_str(package);
-        contents.push_str("]\n");
-        if !table.is_empty() {
-            let table_body = toml::to_string_pretty(table)
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-            contents.push_str(&table_body);
-        }
-    }
-
     Ok(contents)
 }
-
 #[cfg(test)]
 fn parse_config(contents: &str) -> Result<InjectorConfig, String> {
     parse_versioned_config(contents, true).map(|(config, _)| config)
@@ -388,9 +463,8 @@ fn parse_versioned_config(
 ) -> Result<(InjectorConfig, Option<String>), String> {
     let without_bom = contents.strip_prefix('\u{feff}').unwrap_or(contents);
     let bom_len = contents.len() - without_bom.len();
-    let preprocessed = preprocess_config(without_bom)?;
     let version: ConfigVersion =
-        toml::from_str(&preprocessed).map_err(|error| error.to_string())?;
+        toml::from_str(without_bom).map_err(|error| error.to_string())?;
     let migrated = match version.version {
         None => {
             if !allow_migration {
@@ -425,9 +499,8 @@ fn parse_versioned_config(
     };
     let candidate = migrated.as_deref().unwrap_or(contents);
     let candidate = candidate.strip_prefix('\u{feff}').unwrap_or(candidate);
-    let preprocessed = preprocess_config(candidate)?;
     let parsed: InjectorConfig =
-        toml::from_str(&preprocessed).map_err(|error| error.to_string())?;
+        toml::from_str(candidate).map_err(|error| error.to_string())?;
     Ok((parsed.normalized(), migrated))
 }
 
@@ -445,63 +518,6 @@ fn insert_config_version(contents: &str, bom_len: usize) -> String {
     migrated
 }
 
-fn preprocess_config(contents: &str) -> Result<String, String> {
-    let mut rewritten = String::with_capacity(contents.len());
-    for (line_no, line) in contents.split_inclusive('\n').enumerate() {
-        let (body, ending) = match line.strip_suffix('\n') {
-            Some(body) => (body, "\n"),
-            None => (line, ""),
-        };
-        rewritten.push_str(&rewrite_scoop_header(body, line_no + 1)?);
-        rewritten.push_str(ending);
-    }
-    Ok(rewritten)
-}
-
-fn rewrite_scoop_header(line: &str, line_no: usize) -> Result<String, String> {
-    let trimmed = line.trim_start();
-    if trimmed.starts_with("[[") || !trimmed.starts_with("[scoop.") {
-        return Ok(line.to_string());
-    }
-
-    let leading = &line[..line.len() - trimmed.len()];
-    let Some(close_idx) = trimmed.find(']') else {
-        return Err(format!(
-            "line {line_no}: unterminated [scoop.<package>] header"
-        ));
-    };
-    let header = &trimmed[..=close_idx];
-    let trailer = &trimmed[close_idx + 1..];
-    let header_body = &header[1..header.len() - 1];
-    let package_fragment = header_body
-        .strip_prefix("scoop.")
-        .ok_or_else(|| format!("line {line_no}: invalid scoop header"))?;
-    let package = decode_scoop_package_header(package_fragment.trim(), line_no)?;
-
-    Ok(format!("{leading}[scoop_details.{package:?}]{trailer}"))
-}
-
-fn decode_scoop_package_header(fragment: &str, line_no: usize) -> Result<String, String> {
-    if fragment.is_empty() {
-        return Err(format!("line {line_no}: empty scoop package name"));
-    }
-
-    if (fragment.starts_with('"') && fragment.ends_with('"'))
-        || (fragment.starts_with('\'') && fragment.ends_with('\''))
-    {
-        let wrapped = format!("package = {fragment}");
-        let decoded: ScoopHeaderValue =
-            toml::from_str(&wrapped).map_err(|error| format!("line {line_no}: {error}"))?;
-        let package = decoded.package.trim();
-        if package.is_empty() {
-            return Err(format!("line {line_no}: empty scoop package name"));
-        }
-        return Ok(package.to_string());
-    }
-
-    Ok(fragment.to_string())
-}
-
 fn normalize_packages(packages: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut normalized = Vec::new();
@@ -514,19 +530,7 @@ fn normalize_packages(packages: Vec<String>) -> Vec<String> {
     normalized
 }
 
-fn normalize_scoop_details(
-    details: BTreeMap<String, toml::Table>,
-) -> BTreeMap<String, toml::Table> {
-    let mut normalized = BTreeMap::new();
-    for (package, table) in details {
-        let package = package.trim();
-        if !package.is_empty() {
-            normalized.insert(package.to_string(), table);
-        }
-    }
-    normalized
-}
-
+ 
 fn start_watcher(path: PathBuf) {
     let reload_path = path.clone();
     if let Err(error) =
@@ -535,6 +539,17 @@ fn start_watcher(path: PathBuf) {
         })
     {
         log::error!("failed to start config watcher thread: {}", error);
+    }
+}
+fn start_bm_watcher() {
+    let bm = bm_path();
+    let reload_path = config_path();
+    if let Err(error) =
+        file_watch::spawn_path_watcher("injector-bm-watch", bm, move |trigger| {
+            reload_runtime_config(&reload_path, trigger);
+        })
+    {
+        log::error!("failed to start bm.txt watcher thread: {}", error);
     }
 }
 
@@ -619,7 +634,6 @@ impl MainConfig {
 impl InjectorConfig {
     fn normalized(mut self) -> Self {
         self.scoop = normalize_packages(self.scoop);
-        self.scoop_details = normalize_scoop_details(self.scoop_details);
         self
     }
 }

@@ -37,14 +37,14 @@
 
 ### KOBING Routing
 
-- For every request routed by `scoop` with `FilterDecision::allowed == true`, KOBING is the only
+- For every request routed by the `bm.txt` allow-list with `FilterDecision::allowed == true`, KOBING is the only
   backend during normal reachable operation. Per-method intercept settings still determine whether
-  a request is routed by `scoop`.
+  a request is routed by the `bm.txt` allow-list.
 - Choose the backend only from the current caller, filter decision, method, and configuration. Do
   not read or infer which backend created a key, `KeyDescriptor`, `KEY_ID`, `GRANT`, alias,
   wrapping key, or attestation key.
 - Per-method intercept settings are authoritative. When interception for a method is disabled, pass
-  the request to System unchanged even for a caller allowed by `scoop`
+  the request to System unchanged even for a caller allowed by the `bm.txt` allow-list
 - Do not support key or descriptor continuity between System and KOBING. Pass old, externally
   supplied, and System-created descriptors to the selected backend unchanged; an KOBING business
   error for such a descriptor is authoritative.
@@ -79,7 +79,7 @@
   because IMEI2, MEID, or all telephony fields are absent after one-shot discovery.
 - Preserve every valid candidate returned by any slot or API. A failure or unsupported result from
   another probe must not discard successful values or turn the resolved snapshot into an error.
-  Individual probe failures are internal discovery failures, not scoop-routed KOBING business errors.
+  Individual probe failures are internal discovery failures, not allow-list-routed KOBING business errors.
 - Return `CANNOT_ATTEST_IDS` only when an explicitly requested ID is absent or mismatched. Missing
   unrequested IMEI2 or MEID must not block ordinary attestation or requests for other IDs.
 - Use the existing privileged fork helper and direct Binder calls. Do not add shell commands or
@@ -109,7 +109,7 @@
   compiled Rust path and the relevant Android release. Edit it only when the task includes reference
   documentation, probes, or reports.
 - For injector or detector investigations, start from injector-visible routing, state, and fresh
-  scooped/plain runtime evidence. Use `refs/keymint` and `refs/keystore2` as final contract checks,
+  allow-listed/plain runtime evidence. Use `refs/keymint` and `refs/keystore2` as final contract checks,
   not as a reason for speculative production rewrites.
 - For every substantial change, check whether any documentation under `docs/` describes the
   affected behavior and update it when needed.

@@ -34,5 +34,5 @@ start_daemon() {
   return 0
 }
 
-start_daemon "$MODDIR/daemon" "$STATE_DIR/keymint-daemon.pid"
-start_daemon "$MODDIR/daemon-injector" "$STATE_DIR/injector-daemon.pid"
+start_daemon "$MODDIR/daemon" "$STATE_DIR/keymint.pid"
+start_daemon "$MODDIR/daemon-injector" "$STATE_DIR/injector.pid"

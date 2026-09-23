@@ -35,12 +35,19 @@ fn temp_config_path(name: &str) -> TempConfigPath {
     TempConfigPath(std::env::temp_dir().join(format!("ko_bing-injector-{name}-{unique}.toml")))
 }
 
+fn temp_bm_path(name: &str) -> TempConfigPath {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should move forward")
+        .as_nanos();
+    TempConfigPath(std::env::temp_dir().join(format!("ko_bing-injector-{name}-{unique}.bm.txt")))
+}
+
 #[test]
 fn config_defaults_and_log_levels_match_contract() {
     let config = InjectorConfig::default();
     assert!(config.main.enabled);
     assert_eq!(config.scoop, default_scoop());
-    assert!(config.scoop_details.is_empty());
     assert_eq!(config.main.log_level_filter(), LevelFilter::Debug);
     assert!(config.filter.block_android_package);
     assert!(!config.filter.allow_unknown_package);
@@ -62,13 +69,13 @@ fn config_defaults_and_log_levels_match_contract() {
 }
 
 #[test]
-fn parses_new_scoop_format_and_preserves_package_details() {
+fn parses_legacy_scoop_array_from_toml() {
+    // `scoop` is still accepted from injector.toml for migration, but the
+    // authoritative package list lives in bm.txt. Parsing must keep deduping
+    // the array so old configs survive the transition.
     let parsed = parse_config(
         r#"
 scoop = ["com.example.app", "com.other.app", "com.example.app"]
-
-[scoop."com.example.app"]
-mode = "strict"
 
 [main]
 enabled = false
@@ -101,14 +108,6 @@ get_supplementary_attestation_info = true
     );
     assert_eq!(parsed.main.log_level_filter(), LevelFilter::Trace);
     assert!(!parsed.main.enabled);
-    assert_eq!(
-        parsed
-            .scoop_details
-            .get("com.example.app")
-            .and_then(|table| table.get("mode"))
-            .and_then(toml::Value::as_str),
-        Some("strict")
-    );
     assert!(!parsed.intercept.get_security_level);
     assert!(parsed.intercept.get_key_entry);
     assert!(!parsed.intercept.update_subcomponent);
@@ -145,23 +144,15 @@ allow_packages = ["com.legacy.app"]
 }
 
 #[test]
-fn rendered_config_uses_new_scoop_format() {
-    let mut config = InjectorConfig {
-        scoop: vec!["com.example.app".to_string()],
-        ..Default::default()
-    };
-    let mut table = toml::Table::new();
-    table.insert("enabled".to_string(), toml::Value::Boolean(true));
-    config
-        .scoop_details
-        .insert("com.example.app".to_string(), table);
-
+fn rendered_config_omits_package_list() {
+    let config = InjectorConfig::default();
     let rendered = render_config(&config).expect("config should render");
-    assert!(rendered.contains("scoop = ["));
-    assert!(rendered.contains("[scoop.com.example.app]"));
-    assert!(!rendered.contains("[[scope]]"));
+    // The package allow-list now lives in bm.txt, so it must not be emitted
+    // back into injector.toml.
+    assert!(!rendered.contains("scoop"));
+    assert!(rendered.contains("bm.txt"));
     let reparsed = parse_config(&rendered).expect("rendered config should parse");
-    assert_eq!(reparsed.scoop_details, config.scoop_details);
+    assert!(reparsed.main.enabled);
 }
 
 #[test]
@@ -173,8 +164,13 @@ fn missing_config_is_seeded_but_invalid_startup_config_is_untouched() {
     assert_eq!(loaded.version, CURRENT_CONFIG_VERSION);
 
     let on_disk = fs::read_to_string(&*path).expect("written config should be readable");
+    assert!(
+        !on_disk.contains("scoop"),
+        "seeded config must not carry a package list"
+    );
     let reparsed = parse_config(&on_disk).expect("written config should parse");
-    assert_eq!(reparsed.scoop, loaded.scoop);
+    assert!(reparsed.main.enabled);
+    assert_eq!(loaded.scoop, default_scoop());
 
     let path = temp_config_path("invalid");
     let invalid = "[main\nbroken";
@@ -190,23 +186,20 @@ fn missing_config_is_seeded_but_invalid_startup_config_is_untouched() {
 }
 
 #[test]
-fn v0_config_migrates_through_public_scoop_syntax_and_preserves_mode() {
+fn v0_config_migrates_and_preserves_mode() {
     let path = temp_config_path("v0-migration");
     let v0 = "\u{feff}scoop = [\"com.example.app\"]\r\n\r\n\
-              [scoop.com.example.app]\r\nmode = \"strict\"\r\n";
+              [main]\r\nenabled = false\r\n";
     fs::write(&*path, v0).unwrap();
     fs::set_permissions(&*path, fs::Permissions::from_mode(0o640)).unwrap();
 
-    let loaded = load_from_path(&path, true).expect("v0 config should migrate");
+    // Isolate bm.txt so the test never reads the real allow-list that may
+    // exist on the device (/data/surprise/kobing_bm.txt).
+    let bm = temp_bm_path("v0-migration");
+    let loaded = load_from_path_with_bm(&path, true, &bm).expect("v0 config should migrate");
     assert_eq!(loaded.version, CURRENT_CONFIG_VERSION);
-    assert_eq!(
-        loaded
-            .scoop_details
-            .get("com.example.app")
-            .and_then(|table| table.get("mode"))
-            .and_then(toml::Value::as_str),
-        Some("strict")
-    );
+    assert_eq!(loaded.scoop, vec!["com.example.app".to_string()]);
+    assert!(!loaded.main.enabled);
 
     let migrated = fs::read_to_string(&*path).unwrap();
     assert_eq!(
@@ -251,10 +244,14 @@ fn unsupported_versions_are_rejected_without_rewriting() {
 }
 
 #[test]
-fn template_scope_matches_default_scope() {
+fn template_config_has_no_package_list() {
     let template = include_str!("../../../template/injector.toml");
+    assert!(
+        !template.contains("scoop"),
+        "template injector.toml must not embed a package list"
+    );
     let parsed = parse_config(template).expect("template injector config should parse");
-    assert_eq!(parsed.scoop, default_scoop());
+    assert!(parsed.main.enabled);
 }
 
 #[test]
