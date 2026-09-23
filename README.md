@@ -1,5 +1,7 @@
 # Ko Bing
 
+**English** | [简体中文](README.zh-CN.md)
+
 [![Telegram](https://img.shields.io/static/v1?label=Telegram&message=@kobing_hide&color=0088cc)](https://t.me/kobing_hide)  [![CI Build](https://github.com/haitaogao58/kobing/actions/workflows/ci.yml/badge.svg)](https://github.com/haitaogao58/kobing/actions/workflows/ci.yml)
 
 Custom keystore implementation for Android Keystore Spoofer

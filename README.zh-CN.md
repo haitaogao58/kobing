@@ -1,10 +1,10 @@
 # Ko Bing
 
+[English](README.md) | **简体中文**
+
 [![Telegram](https://img.shields.io/static/v1?label=Telegram&message=@kobing_hide&color=0088cc)](https://t.me/kobing_hide)  [![CI Build](https://github.com/haitaogao58/kobing/actions/workflows/ci.yml/badge.svg)](https://github.com/haitaogao58/kobing/actions/workflows/ci.yml)
 
 Android Keystore Spoofer 的自定义 keystore 实现（中文说明）
-
-> 英文文档见 [README.md](README.md)。
 
 ## 这是什么？
 
