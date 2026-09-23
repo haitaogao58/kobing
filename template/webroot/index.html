@@ -518,15 +518,14 @@
     var instP = execRaw('pm list packages').then(function(r){ return r.stdout || ''; }, function(){ return ''; });
     var userP = execRaw('pm list packages -3').then(function(r){ return r.stdout || ''; }, function(){ return ''; });
     var cfgP  = execRaw('cat ' + shQuote(BM_PATH)).then(function(r){ return r.stdout || ''; }, function(){ return ''; });
-    // 名称表：优先使用启动时生成的 window.KB_APPS；为空时实时调用脚本生成。
-    var appsP;
-    if (window.KB_APPS && Object.keys(window.KB_APPS).length){
-      appsP = Promise.resolve(window.KB_APPS);
-    } else {
-      appsP = execRaw('sh ' + shQuote(APPNAME_SCRIPT)).then(function(r){
-        try { return JSON.parse(r.stdout || '{}') || {}; } catch(e){ return {}; }
-      }, function(){ return {}; });
-    }
+    // 名称表 {pkg:{l:label}}：只用来查显示名，绝不作为应用列表来源。
+    // 优先实时调用脚本（此时系统已启动，pm/aapt 均可用）；失败再回退启动时注入的 window.KB_APPS。
+    var appsP = execRaw('sh ' + shQuote(APPNAME_SCRIPT)).then(function(r){
+      var o = {};
+      try { o = JSON.parse(r.stdout || '{}') || {}; } catch(e){ o = {}; }
+      if (!Object.keys(o).length && window.KB_APPS) o = window.KB_APPS;
+      return o;
+    }, function(){ return window.KB_APPS || {}; });
     Promise.all([instP, cfgP, userP, appsP]).then(function(v){
       installedSet = {};
       var lines = (v[0] || '').split(NL);
@@ -541,30 +540,23 @@
       selSet = {};
       for (var j=0;j<cfgList.length;j++) selSet[cfgList[j]] = true;
 
-      var D = v[3] || {};
+      var D = v[3] || {};        // 名称表：pkg -> {l: label}
+      function labelOf(p){ return (D[p] && D[p].l) ? D[p].l : p; }
       var seen = {};
       allPkgs = [];
-      for (var pkg in D){
-        if (!Object.prototype.hasOwnProperty.call(D, pkg)) continue;
-        var rec = D[pkg] || {};
-        allPkgs.push({ pkg: pkg, label: rec.l || pkg });
-        seen[pkg] = true;
+      // 应用列表以设备为准：先放已安装的第三方应用
+      var ulines = (v[2] || '').split(NL);
+      for (var u=0;u<ulines.length;u++){
+        var ul = ulines[u].trim();
+        if (!ul) continue;
+        var ui = ul.indexOf(':');
+        var un = ui >= 0 ? ul.slice(ui+1).trim() : ul;
+        if (un && un.indexOf('package') !== 0 && !seen[un]){ allPkgs.push({ pkg: un, label: labelOf(un) }); seen[un] = true; }
       }
-      // 没有素材库时（模块未随包提供名称表），直接列出已安装的第三方应用
-      if (!allPkgs.length){
-        var ulines = (v[2] || '').split(NL);
-        for (var u=0;u<ulines.length;u++){
-          var ul = ulines[u].trim();
-          if (!ul) continue;
-          var ui = ul.indexOf(':');
-          var un = ui >= 0 ? ul.slice(ui+1).trim() : ul;
-          if (un && un.indexOf('package') !== 0 && !seen[un]){ allPkgs.push({ pkg: un, label: un }); seen[un] = true; }
-        }
-      }
-      // 配置里已有、但没在素材库中的包（例如已卸载），兜底展示
+      // 配置里已有、但没在列表中的包（例如系统应用或已卸载），兜底展示
       for (var m=0;m<cfgList.length;m++){
         var p = cfgList[m];
-        if (!seen[p]){ allPkgs.push({ pkg: p, label: p }); seen[p] = true; }
+        if (!seen[p]){ allPkgs.push({ pkg: p, label: labelOf(p) }); seen[p] = true; }
       }
       allPkgs.sort(function(a,b){
         try { return String(a.label).localeCompare(String(b.label), 'zh-Hans-CN'); }

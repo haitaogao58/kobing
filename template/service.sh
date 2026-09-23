@@ -46,6 +46,18 @@ generate_apps_data() {
   [ -x "$MODDIR/tools/applist.sh" ] || return 0
   web="$MODDIR/webroot"
   [ -d "$web" ] || return 0
+  # Wait until the package manager is actually ready. Running this too early
+  # in boot yields a table that only contains the bm.txt entries (pm/aapt not
+  # yet available), which must not happen because the table is meant to hold
+  # the full installed-app list with real labels.
+  i=0
+  while [ "$i" -lt 90 ]; do
+    if [ -n "$(pm list packages 2>/dev/null)" ]; then
+      break
+    fi
+    i=$((i+1))
+    sleep 2
+  done
   tmp="$web/.apps_data.$$"
   if sh "$MODDIR/tools/applist.sh" > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
     { printf 'window.KB_APPS = '; cat "$tmp"; printf ';\n'; } > "$web/apps_data.js"
