@@ -7,7 +7,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Read the [FAQ](https://github.com/kobing/KoBing/blob/master/docs/FAQ.md) and [README](https://github.com/kobing/KoBing/blob/master/README.md), then search existing issues.
+        Read the [FAQ](https://github.com/haitaogao58/kobing/blob/main/docs/FAQ.md) and [README](https://github.com/haitaogao58/kobing/blob/main/README.md), then search existing issues.
 
   - type: checkboxes
     id: preflight

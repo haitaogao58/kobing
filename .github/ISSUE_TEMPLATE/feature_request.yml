@@ -7,7 +7,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Read the [FAQ](https://github.com/kobing/KoBing/blob/master/docs/FAQ.md), search existing issues, and describe the real problem rather than only an implementation idea.
+        Read the [FAQ](https://github.com/haitaogao58/kobing/blob/main/docs/FAQ.md), search existing issues, and describe the real problem rather than only an implementation idea.
 
   - type: checkboxes
     id: preflight

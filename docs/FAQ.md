@@ -431,7 +431,7 @@ For a report, note the exact reproduction time and also collect
 ### What should I include in a bug report?
 
 Use the
-[bug report form](https://github.com/kobing/KoBing/issues/new?template=bug_report.yml)
+[bug report form](https://github.com/haitaogao58/kobing/issues/new?template=bug_report.yml)
 and include:
 
 - the full release tag or build identity, not just "latest";
@@ -469,11 +469,11 @@ or distributing KOBING.
 ### Where should I ask for help?
 
 Use the
-[Question form](https://github.com/kobing/KoBing/issues/new?template=question.yml)
+[Question form](https://github.com/haitaogao58/kobing/issues/new?template=question.yml)
 for a usage question, the
-[Bug report form](https://github.com/kobing/KoBing/issues/new?template=bug_report.yml)
+[Bug report form](https://github.com/haitaogao58/kobing/issues/new?template=bug_report.yml)
 for a repeatable defect, and the
-[Feature request form](https://github.com/kobing/KoBing/issues/new?template=feature_request.yml)
+[Feature request form](https://github.com/haitaogao58/kobing/issues/new?template=feature_request.yml)
 for a proposed change. Read this FAQ and search existing reports first.
 
 For community discussion, use the Telegram link in the [README](../README.md).

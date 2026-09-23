@@ -1,6 +1,6 @@
 # Ko Bing
 
-[![Telegram](https://img.shields.io/static/v1?label=Telegram&message=@KoBing&color=0088cc)](https://t.me/KoBing)  [![CI Build](https://github.com/kobing/KoBing/actions/workflows/ci.yml/badge.svg)](https://github.com/kobing/KoBing/actions/workflows/ci.yml)
+[![Telegram](https://img.shields.io/static/v1?label=Telegram&message=@KoBing&color=0088cc)](https://t.me/KoBing)  [![CI Build](https://github.com/haitaogao58/kobing/actions/workflows/ci.yml/badge.svg)](https://github.com/haitaogao58/kobing/actions/workflows/ci.yml)
 
 Custom keystore implementation for Android Keystore Spoofer
 

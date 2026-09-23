@@ -32,4 +32,4 @@ Related issue:
       required notices.
 - [ ] I have read and agree to the copyright, concurrent-license, dispute
       authorization, and relicensing terms in
-      [CONTRIBUTING.md](https://github.com/kobing/KoBing/blob/master/docs/CONTRIBUTING.md).
+      [CONTRIBUTING.md](https://github.com/haitaogao58/kobing/blob/main/docs/CONTRIBUTING.md).

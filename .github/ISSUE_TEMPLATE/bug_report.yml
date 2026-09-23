@@ -7,7 +7,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Read the [FAQ](https://github.com/kobing/KoBing/blob/master/docs/FAQ.md) and search existing issues first. A report without an identifiable build, relevant configuration, and matching logs usually cannot be diagnosed.
+        Read the [FAQ](https://github.com/haitaogao58/kobing/blob/main/docs/FAQ.md) and search existing issues first. A report without an identifiable build, relevant configuration, and matching logs usually cannot be diagnosed.
 
   - type: checkboxes
     id: preflight

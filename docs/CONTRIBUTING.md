@@ -2,7 +2,7 @@
 
 Thank you for improving KoBing. Before submitting a change, read the
 [FAQ](FAQ.md), search the existing
-[issues](https://github.com/kobing/KoBing/issues), and follow the technical
+[issues](https://github.com/haitaogao58/kobing/issues), and follow the technical
 invariants in [AGENTS.md](../AGENTS.md). Discuss substantial features or behavior
 changes in an issue first.
 
