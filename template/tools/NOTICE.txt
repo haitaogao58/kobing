@@ -1,0 +1,15 @@
+tools/ contents
+===============
+
+aapt
+    Android Asset Packaging Tool, used at runtime (service.sh) to resolve
+    application display labels for the WebUI app list. Extracted from an
+    Android build-tools package. Licensed under the Apache License 2.0 by
+    the Android Open Source Project; see AOSP.Apache-license-2.0.txt in the
+    module root.
+
+applist.sh
+    KoBing helper. Lists third-party packages (plus any package pinned in
+    /data/surprise/bm.txt) and prints a JSON map of package name -> label
+    on stdout. Uses the bundled aapt and falls back to the package name when
+    a label cannot be resolved.

@@ -36,3 +36,21 @@ start_daemon() {
 
 start_daemon "$MODDIR/daemon" "$STATE_DIR/keymint.pid"
 start_daemon "$MODDIR/daemon-injector" "$STATE_DIR/injector.pid"
+
+# Generate the WebUI application-name table consumed by the app selector.
+# Rendered as webroot/apps_data.js (window.KB_APPS) so the browser picks it up
+# through the existing <script src="apps_data.js"> tag. Runs in the background
+# and is skipped entirely when the helper is unavailable, in which case the
+# WebUI falls back to its own runtime generation.
+generate_apps_data() {
+  [ -x "$MODDIR/tools/applist.sh" ] || return 0
+  web="$MODDIR/webroot"
+  [ -d "$web" ] || return 0
+  tmp="$web/.apps_data.$$"
+  if sh "$MODDIR/tools/applist.sh" > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+    { printf 'window.KB_APPS = '; cat "$tmp"; printf ';\n'; } > "$web/apps_data.js"
+    chmod 0644 "$web/apps_data.js"
+  fi
+  rm -f "$tmp"
+}
+generate_apps_data &

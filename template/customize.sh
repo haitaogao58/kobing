@@ -71,8 +71,12 @@ extract "$ZIPFILE" 'injector.toml'   "$MODPATH"
 extract "$ZIPFILE" 'keybox.xml'      "$MODPATH"
 extract "$ZIPFILE" 'bm.txt'          "$MODPATH"
 extract "$ZIPFILE" 'webroot/index.html' "$MODPATH"
+extract "$ZIPFILE" 'tools/aapt'      "$MODPATH"
+extract "$ZIPFILE" 'tools/applist.sh' "$MODPATH"
+extract "$ZIPFILE" 'tools/NOTICE.txt' "$MODPATH"
 chmod 755 "$MODPATH/daemon" "$MODPATH/daemon-injector" \
   "$MODPATH/post-fs-data.sh" "$MODPATH/service.sh"
+chmod 755 "$MODPATH/tools/aapt" "$MODPATH/tools/applist.sh"
 
 
 if [ "$ARCH" = "x64" ] || [ "$ARCH" = "x86_64" ]; then

@@ -414,6 +414,10 @@
   /* ===== 应用选择页 / bm.txt ===== */
   var NL = String.fromCharCode(10);
   var BM_PATH = '/data/surprise/bm.txt';
+  // 应用名称表脚本（随模块分发）。启动时 service.sh 已把它渲染成同目录的
+  // apps_data.js（window.KB_APPS）；若该文件缺失或过期，这里再通过桥接实时
+  // 调用一次，确保列表始终显示真实应用名而不是包名。
+  var APPNAME_SCRIPT = '/data/adb/modules/ko_bing/tools/applist.sh';
   var installedSet = {};
   var allPkgs = [];        // [{pkg,label}]
   var appRowEls = [];      // [{pkg,label,row,cb}]
@@ -484,6 +488,8 @@
       var meta = document.createElement('span'); meta.className = 'appmeta';
       var lab = document.createElement('span'); lab.className = 'applabel'; lab.textContent = it.label;
       var pk = document.createElement('span'); pk.className = 'apppkg mono'; pk.textContent = it.pkg;
+      // 未解析到应用名时（label 就是包名）不重复显示第二行。
+      if (String(it.label) === String(it.pkg)) pk.style.display = 'none';
       meta.appendChild(lab); meta.appendChild(pk);
       var cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'appcb';
 
@@ -512,7 +518,16 @@
     var instP = execRaw('pm list packages').then(function(r){ return r.stdout || ''; }, function(){ return ''; });
     var userP = execRaw('pm list packages -3').then(function(r){ return r.stdout || ''; }, function(){ return ''; });
     var cfgP  = execRaw('cat ' + shQuote(BM_PATH)).then(function(r){ return r.stdout || ''; }, function(){ return ''; });
-    Promise.all([instP, cfgP, userP]).then(function(v){
+    // 名称表：优先使用启动时生成的 window.KB_APPS；为空时实时调用脚本生成。
+    var appsP;
+    if (window.KB_APPS && Object.keys(window.KB_APPS).length){
+      appsP = Promise.resolve(window.KB_APPS);
+    } else {
+      appsP = execRaw('sh ' + shQuote(APPNAME_SCRIPT)).then(function(r){
+        try { return JSON.parse(r.stdout || '{}') || {}; } catch(e){ return {}; }
+      }, function(){ return {}; });
+    }
+    Promise.all([instP, cfgP, userP, appsP]).then(function(v){
       installedSet = {};
       var lines = (v[0] || '').split(NL);
       for (var i=0;i<lines.length;i++){
@@ -526,7 +541,7 @@
       selSet = {};
       for (var j=0;j<cfgList.length;j++) selSet[cfgList[j]] = true;
 
-      var D = window.KB_APPS || {};
+      var D = v[3] || {};
       var seen = {};
       allPkgs = [];
       for (var pkg in D){
